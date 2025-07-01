@@ -14,12 +14,12 @@ if (localPropertiesFile.exists()) {
 
 def flutterVersionCode = localProperties.getProperty('flutter.versionCode')
 if (flutterVersionCode == null) {
-    flutterVersionCode = '1'
+    flutterVersionCode = '2'
 }
 
 def flutterVersionName = localProperties.getProperty('flutter.versionName')
 if (flutterVersionName == null) {
-    flutterVersionName = '1.0'
+    flutterVersionName = '2.0'
 }
 
 android {
@@ -51,13 +51,24 @@ android {
         versionName flutterVersionName
     }
 
-    buildTypes {
+    signingConfigs {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig signingConfigs.debug
+            storeFile file("davomat.jks") // Faylni android/app ichiga qo'yganingiz uchun shunchaki nomi
+            storePassword "#Diyor2010#"   // Sizning keystore parolingiz
+            keyAlias "Play store"        // Sizning alias nomingiz
+            keyPassword "#Diyor2010#"     // Sizning alias parolingiz (ko'pincha keystore paroli bilan bir xil bo'ladi)
         }
     }
+
+    buildTypes {
+        release {
+            // Avval bu yerda 'signingConfigs.debug' bo'lgan bo'lishi mumkin.
+            // Endi uni o'zingizning release signing config'ingizga o'zgartirasiz.
+            signingConfig signingConfigs.release
+        }
+    }
+
+    
 }
 
 flutter {

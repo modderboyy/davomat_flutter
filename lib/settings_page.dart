@@ -1,7 +1,12 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:DavomatYettilik/main.dart';
+import 'dart:typed_data';
+import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -18,13 +23,27 @@ class _SettingsPageState extends State<SettingsPage> {
   static const Color cardColor = Colors.white;
   static const Color textPrimary = Color(0xFF1A1A1A);
   static const Color textSecondary = Color(0xFF6B7280);
+  static const Color successColor = Color(0xFF10B981);
+  static const Color errorColor = Color(0xFFEF4444);
 
   String _currentLanguage = 'uz';
+  bool _isAdmin = false;
+  bool _isLoading = true;
+
+  // User-specific settings
   bool _enableAttendanceMessage = false;
   String _attendanceMessage = '';
   bool _showTodayCard = true;
   bool _showCalendar = true;
   bool _compactView = false;
+
+  // Admin-specific settings
+  String? _companyName;
+  String? _companyLogo;
+  String? _companyId;
+  bool _isUploadingLogo = false;
+
+  final TextEditingController _companyNameController = TextEditingController();
 
   final Map<String, Map<String, String>> _localizedStrings = {
     'en': {
@@ -39,58 +58,23 @@ class _SettingsPageState extends State<SettingsPage> {
       'show_today_card': 'Show Today\'s Attendance Card',
       'show_calendar': 'Show Attendance Calendar',
       'compact_view': 'Compact View',
+      'company_settings': 'Company Settings',
+      'company_name': 'Company Name',
+      'company_logo': 'Company Logo',
+      'change_logo': 'Change Logo',
+      'upload_logo': 'Upload Logo',
+      'save_company_name': 'Save Company Name',
       'about': 'About',
       'version': 'Version',
       'app_info': 'App Information',
       'save': 'Save',
       'saved': 'Settings saved successfully',
+      'company_name_saved': 'Company name saved successfully',
+      'logo_uploaded': 'Logo uploaded successfully',
       'uzbek': 'O\'zbekcha',
       'english': 'English',
       'russian': 'Русский',
-      'appearance': 'Appearance',
-      'theme': 'Theme',
-      'dark_mode': 'Dark Mode',
-      'light_mode': 'Light Mode',
-      'system_default': 'System Default',
-      'notifications': 'Notifications',
-      'push_notifications': 'Push Notifications',
-      'email_notifications': 'Email Notifications',
-      'reminder_notifications': 'Reminder Notifications',
-      'sound_settings': 'Sound Settings',
-      'notification_sound': 'Notification Sound',
-      'vibration': 'Vibration',
-      'privacy': 'Privacy',
-      'data_usage': 'Data Usage',
-      'location_access': 'Location Access',
-      'camera_access': 'Camera Access',
-      'storage_access': 'Storage Access',
-      'backup_restore': 'Backup & Restore',
-      'backup_data': 'Backup Data',
-      'restore_data': 'Restore Data',
-      'auto_backup': 'Auto Backup',
-      'advanced': 'Advanced',
-      'developer_options': 'Developer Options',
-      'debug_mode': 'Debug Mode',
-      'clear_cache': 'Clear Cache',
-      'reset_settings': 'Reset Settings',
-      'export_data': 'Export Data',
-      'import_data': 'Import Data',
-      'app_version_info': 'App Version Information',
-      'build_date': 'Build Date',
-      'last_update': 'Last Update',
-      'support_contact': 'Support Contact',
-      'feedback': 'Send Feedback',
-      'report_bug': 'Report Bug',
-      'feature_request': 'Feature Request',
-      'help_documentation': 'Help & Documentation',
-      'user_guide': 'User Guide',
-      'faq': 'Frequently Asked Questions',
-      'contact_support': 'Contact Support',
-      'legal': 'Legal',
-      'terms_conditions': 'Terms & Conditions',
-      'privacy_policy': 'Privacy Policy',
-      'licenses': 'Open Source Licenses',
-      'acknowledgments': 'Acknowledgments',
+      'company_name_placeholder': 'Enter company name...',
     },
     'uz': {
       'settings': 'Sozlamalar',
@@ -104,58 +88,23 @@ class _SettingsPageState extends State<SettingsPage> {
       'show_today_card': 'Bugungi davomat kartasini ko\'rsatish',
       'show_calendar': 'Davomat kalendarini ko\'rsatish',
       'compact_view': 'Ixcham ko\'rinish',
+      'company_settings': 'Kompaniya sozlamalari',
+      'company_name': 'Kompaniya nomi',
+      'company_logo': 'Kompaniya logosi',
+      'change_logo': 'Logo o\'zgartirish',
+      'upload_logo': 'Logo yuklash',
+      'save_company_name': 'Kompaniya nomini saqlash',
       'about': 'Dastur haqida',
       'version': 'Versiya',
       'app_info': 'Dastur ma\'lumotlari',
       'save': 'Saqlash',
       'saved': 'Sozlamalar muvaffaqiyatli saqlandi',
+      'company_name_saved': 'Kompaniya nomi muvaffaqiyatli saqlandi',
+      'logo_uploaded': 'Logo muvaffaqiyatli yuklandi',
       'uzbek': 'O\'zbekcha',
       'english': 'English',
       'russian': 'Русский',
-      'appearance': 'Ko\'rinish',
-      'theme': 'Mavzu',
-      'dark_mode': 'Qorong\'u rejim',
-      'light_mode': 'Yorug\' rejim',
-      'system_default': 'Tizim bo\'yicha',
-      'notifications': 'Bildirishnomalar',
-      'push_notifications': 'Push bildirishnomalar',
-      'email_notifications': 'Email bildirishnomalar',
-      'reminder_notifications': 'Eslatma bildirishnomalari',
-      'sound_settings': 'Ovoz sozlamalari',
-      'notification_sound': 'Bildirishnoma ovozi',
-      'vibration': 'Tebranish',
-      'privacy': 'Maxfiylik',
-      'data_usage': 'Ma\'lumotlar foydalanishi',
-      'location_access': 'Joylashuvga kirish',
-      'camera_access': 'Kameraga kirish',
-      'storage_access': 'Xotiraga kirish',
-      'backup_restore': 'Zaxira nusxa va tiklash',
-      'backup_data': 'Ma\'lumotlarni zaxiralash',
-      'restore_data': 'Ma\'lumotlarni tiklash',
-      'auto_backup': 'Avtomatik zaxiralash',
-      'advanced': 'Qo\'shimcha',
-      'developer_options': 'Dasturchi sozlamalari',
-      'debug_mode': 'Debug rejimi',
-      'clear_cache': 'Keshni tozalash',
-      'reset_settings': 'Sozlamalarni tiklash',
-      'export_data': 'Ma\'lumotlarni eksport qilish',
-      'import_data': 'Ma\'lumotlarni import qilish',
-      'app_version_info': 'Dastur versiyasi ma\'lumotlari',
-      'build_date': 'Yaratilgan sana',
-      'last_update': 'Oxirgi yangilanish',
-      'support_contact': 'Yordam aloqasi',
-      'feedback': 'Fikr-mulohaza yuborish',
-      'report_bug': 'Xato haqida xabar berish',
-      'feature_request': 'Yangi funksiya so\'rash',
-      'help_documentation': 'Yordam va hujjatlar',
-      'user_guide': 'Foydalanuvchi qo\'llanmasi',
-      'faq': 'Tez-tez so\'raladigan savollar',
-      'contact_support': 'Yordam xizmati bilan bog\'lanish',
-      'legal': 'Huquqiy',
-      'terms_conditions': 'Shartlar va qoidalar',
-      'privacy_policy': 'Maxfiylik siyosati',
-      'licenses': 'Ochiq manba litsenziyalari',
-      'acknowledgments': 'Minnatdorchilik',
+      'company_name_placeholder': 'Kompaniya nomini kiriting...',
     },
     'ru': {
       'settings': 'Настройки',
@@ -169,58 +118,23 @@ class _SettingsPageState extends State<SettingsPage> {
       'show_today_card': 'Показать карточку сегодняшней посещаемости',
       'show_calendar': 'Показать календарь посещаемости',
       'compact_view': 'Компактный вид',
+      'company_settings': 'Настройки компании',
+      'company_name': 'Название компании',
+      'company_logo': 'Логотип компании',
+      'change_logo': 'Изменить логотип',
+      'upload_logo': 'Загрузить логотип',
+      'save_company_name': 'Сохранить название компании',
       'about': 'О приложении',
       'version': 'Версия',
       'app_info': 'Информация о приложении',
       'save': 'Сохранить',
       'saved': 'Настройки успешно сохранены',
+      'company_name_saved': 'Название компании успешно сохранено',
+      'logo_uploaded': 'Логотип успешно загружен',
       'uzbek': 'O\'zbekcha',
       'english': 'English',
       'russian': 'Русский',
-      'appearance': 'Внешний вид',
-      'theme': 'Тема',
-      'dark_mode': 'Темный режим',
-      'light_mode': 'Светлый режим',
-      'system_default': 'По умолчанию системы',
-      'notifications': 'Уведомления',
-      'push_notifications': 'Push-уведомления',
-      'email_notifications': 'Email-уведомления',
-      'reminder_notifications': 'Напоминания',
-      'sound_settings': 'Настройки звука',
-      'notification_sound': 'Звук уведомлений',
-      'vibration': 'Вибрация',
-      'privacy': 'Конфиденциальность',
-      'data_usage': 'Использование данных',
-      'location_access': 'Доступ к местоположению',
-      'camera_access': 'Доступ к камере',
-      'storage_access': 'Доступ к хранилищу',
-      'backup_restore': 'Резервное копирование и восстановление',
-      'backup_data': 'Резервное копирование данных',
-      'restore_data': 'Восстановление данных',
-      'auto_backup': 'Автоматическое резервное копирование',
-      'advanced': 'Дополнительно',
-      'developer_options': 'Параметры разработчика',
-      'debug_mode': 'Режим отладки',
-      'clear_cache': 'Очистить кэш',
-      'reset_settings': 'Сбросить настройки',
-      'export_data': 'Экспорт данных',
-      'import_data': 'Импорт данных',
-      'app_version_info': 'Информация о версии приложения',
-      'build_date': 'Дата сборки',
-      'last_update': 'Последнее обновление',
-      'support_contact': 'Контакт поддержки',
-      'feedback': 'Отправить отзыв',
-      'report_bug': 'Сообщить об ошибке',
-      'feature_request': 'Запрос функции',
-      'help_documentation': 'Справка и документация',
-      'user_guide': 'Руководство пользователя',
-      'faq': 'Часто задаваемые вопросы',
-      'contact_support': 'Связаться с поддержкой',
-      'legal': 'Правовая информация',
-      'terms_conditions': 'Условия использования',
-      'privacy_policy': 'Политика конфиденциальности',
-      'licenses': 'Лицензии с открытым исходным кодом',
-      'acknowledgments': 'Благодарности',
+      'company_name_placeholder': 'Введите название компании...',
     },
   };
 
@@ -228,6 +142,62 @@ class _SettingsPageState extends State<SettingsPage> {
   void initState() {
     super.initState();
     _loadSettings();
+    _checkUserRole();
+  }
+
+  @override
+  void dispose() {
+    _companyNameController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _checkUserRole() async {
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) return;
+
+      final userResponse = await Supabase.instance.client
+          .from('users')
+          .select('is_super_admin, company_id')
+          .eq('id', userId)
+          .maybeSingle();
+
+      if (userResponse != null) {
+        setState(() {
+          _isAdmin = userResponse['is_super_admin'] == true;
+
+          _companyId = userResponse['company_id'];
+        });
+
+        if (_isAdmin && _companyId != null) {
+          await _loadCompanyInfo();
+        }
+      }
+    } catch (e) {
+      print('Error checking user role: $e');
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _loadCompanyInfo() async {
+    try {
+      final companyResponse = await Supabase.instance.client
+          .from('companies')
+          .select('company_name, logo_url')
+          .eq('id', _companyId!)
+          .maybeSingle();
+
+      if (companyResponse != null) {
+        setState(() {
+          _companyName = companyResponse['company_name'];
+          _companyLogo = companyResponse['logo_url'];
+          _companyNameController.text = _companyName ?? '';
+        });
+      }
+    } catch (e) {
+      print('Error loading company info: $e');
+    }
   }
 
   Future<void> _loadSettings() async {
@@ -246,22 +216,139 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _saveSettings() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('language', _currentLanguage);
-    await prefs.setBool('enableAttendanceMessage', _enableAttendanceMessage);
-    await prefs.setString('attendanceMessage', _attendanceMessage);
-    await prefs.setBool('showTodayCard', _showTodayCard);
-    await prefs.setBool('showCalendar', _showCalendar);
-    await prefs.setBool('compactView', _compactView);
+
+    // Only save user-specific settings for non-admin users
+    if (!_isAdmin) {
+      await prefs.setBool('enableAttendanceMessage', _enableAttendanceMessage);
+      await prefs.setString('attendanceMessage', _attendanceMessage);
+      await prefs.setBool('showTodayCard', _showTodayCard);
+      await prefs.setBool('showCalendar', _showCalendar);
+      await prefs.setBool('compactView', _compactView);
+    }
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(_translate('saved')),
-          backgroundColor: primaryColor,
+          backgroundColor: successColor,
           behavior: SnackBarBehavior.floating,
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       );
+    }
+  }
+
+  Future<void> _saveCompanyName() async {
+    if (_companyId == null || _companyNameController.text.trim().isEmpty)
+      return;
+
+    try {
+      await Supabase.instance.client
+          .from('companies')
+          .update({'company_name': _companyNameController.text.trim()}).eq(
+              'id', _companyId!);
+
+      setState(() {
+        _companyName = _companyNameController.text.trim();
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_translate('company_name_saved')),
+            backgroundColor: successColor,
+            behavior: SnackBarBehavior.floating,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error saving company name: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Xatolik yuz berdi'),
+            backgroundColor: errorColor,
+            behavior: SnackBarBehavior.floating,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _uploadLogo() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
+      );
+
+      if (result != null && result.files.isNotEmpty) {
+        setState(() => _isUploadingLogo = true);
+
+        final file = result.files.first;
+        final fileName =
+            'company_logo/${DateTime.now().millisecondsSinceEpoch}_${file.name}';
+
+        Uint8List? fileBytes;
+        if (kIsWeb) {
+          fileBytes = file.bytes;
+        } else {
+          fileBytes = await File(file.path!).readAsBytes();
+        }
+
+        if (fileBytes != null && _companyId != null) {
+          // Upload to Supabase Storage
+          await Supabase.instance.client.storage
+              .from('photos')
+              .uploadBinary(fileName, fileBytes);
+
+          // Get public URL
+          final logoUrl = Supabase.instance.client.storage
+              .from('photos')
+              .getPublicUrl(fileName);
+
+          // Update company record
+          await Supabase.instance.client
+              .from('companies')
+              .update({'logo_url': logoUrl}).eq('id', _companyId!);
+
+          setState(() {
+            _companyLogo = logoUrl;
+          });
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(_translate('logo_uploaded')),
+                backgroundColor: successColor,
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10)),
+              ),
+            );
+          }
+        }
+      }
+    } catch (e) {
+      print('Error uploading logo: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Logo yuklashda xatolik'),
+            backgroundColor: errorColor,
+            behavior: SnackBarBehavior.floating,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    } finally {
+      setState(() => _isUploadingLogo = false);
     }
   }
 
@@ -273,6 +360,17 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: backgroundColor,
+        body: Center(
+          child: CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: backgroundColor,
       appBar: AppBar(
@@ -311,10 +409,15 @@ class _SettingsPageState extends State<SettingsPage> {
             children: [
               _buildGeneralSection(),
               SizedBox(height: 24),
-              _buildAttendanceSection(),
-              SizedBox(height: 24),
-              _buildHomeCustomizationSection(),
-              SizedBox(height: 24),
+              if (_isAdmin) ...[
+                _buildCompanySection(),
+                SizedBox(height: 24),
+              ] else ...[
+                _buildAttendanceSection(),
+                SizedBox(height: 24),
+                _buildHomeCustomizationSection(),
+                SizedBox(height: 24),
+              ],
               _buildAboutSection(),
             ],
           ),
@@ -329,6 +432,155 @@ class _SettingsPageState extends State<SettingsPage> {
       icon: CupertinoIcons.settings,
       children: [
         _buildLanguageSelector(),
+      ],
+    );
+  }
+
+  Widget _buildCompanySection() {
+    return _buildSection(
+      title: _translate('company_settings'),
+      icon: CupertinoIcons.house,
+      children: [
+        // Company Name
+        Container(
+          padding: EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: backgroundColor,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _translate('company_name'),
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: textSecondary,
+                ),
+              ),
+              SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _companyNameController,
+                      decoration: InputDecoration(
+                        hintText: _translate('company_name_placeholder'),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide(color: Colors.grey.shade300),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide(color: primaryColor, width: 2),
+                        ),
+                        contentPadding: EdgeInsets.all(12),
+                      ),
+                    ),
+                  ),
+                  SizedBox(width: 12),
+                  ElevatedButton(
+                    onPressed: _saveCompanyName,
+                    child: Icon(CupertinoIcons.checkmark),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: primaryColor,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      padding: EdgeInsets.all(12),
+                      minimumSize: Size(48, 48),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        SizedBox(height: 16),
+        // Company Logo
+        Container(
+          padding: EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: backgroundColor,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _translate('company_logo'),
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: textSecondary,
+                ),
+              ),
+              SizedBox(height: 12),
+              Row(
+                children: [
+                  Container(
+                    width: 60,
+                    height: 60,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      gradient: _companyLogo == null
+                          ? LinearGradient(
+                              colors: [primaryColor, secondaryColor],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            )
+                          : null,
+                    ),
+                    child: _companyLogo != null
+                        ? ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Image.network(
+                              _companyLogo!,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) =>
+                                  Icon(CupertinoIcons.building_2_fill,
+                                      color: Colors.white, size: 30),
+                            ),
+                          )
+                        : Icon(CupertinoIcons.building_2_fill,
+                            color: Colors.white, size: 30),
+                  ),
+                  SizedBox(width: 16),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: _isUploadingLogo ? null : _uploadLogo,
+                      icon: _isUploadingLogo
+                          ? SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor:
+                                    AlwaysStoppedAnimation<Color>(Colors.white),
+                              ),
+                            )
+                          : Icon(_companyLogo == null
+                              ? CupertinoIcons.cloud_upload
+                              : CupertinoIcons.pencil),
+                      label: Text(_companyLogo == null
+                          ? _translate('upload_logo')
+                          : _translate('change_logo')),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: primaryColor,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ],
     );
   }

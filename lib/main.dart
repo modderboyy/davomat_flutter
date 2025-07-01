@@ -52,9 +52,9 @@ class _MyAppState extends State<MyApp> with TickerProviderStateMixin {
 
   final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
-  // Modern color scheme with the specified purple
-  static const Color primaryColor = Color(0xFF6e38c9);
-  static const Color secondaryColor = Color(0xFF9c6bff);
+  // Modern color scheme with #8c03e6
+  static const Color primaryColor = Color(0xFF8c03e6);
+  static const Color secondaryColor = Color(0xFFa855f7);
   static const Color backgroundColor = Color(0xFFF8F9FA);
   static const Color cardColor = Colors.white;
   static const Color textPrimary = Color(0xFF1A1A1A);
@@ -196,15 +196,41 @@ class _MyAppState extends State<MyApp> with TickerProviderStateMixin {
       loggedIn = true;
       currentUserId = session.user.id;
       try {
+        print("Checking user details for ID: ${session.user.id}");
+
         final userDetails = await supabase
             .from('users')
-            .select('is_super_admin')
+            .select('is_super_admin, full_name, email, is_active')
             .eq('id', session.user.id)
             .maybeSingle();
-        isAdminUser =
-            (userDetails != null && userDetails['is_super_admin'] == true);
-        if (userDetails == null)
+
+        print("User details response: $userDetails");
+
+        if (userDetails != null) {
+          isAdminUser = (userDetails['is_super_admin'] == true);
+          final isActive = userDetails['is_active'] ?? true;
+
+          if (!isActive && !isAdminUser) {
+            // User is inactive, logout
+            await supabase.auth.signOut();
+            loggedIn = false;
+            isAdminUser = false;
+            currentUserId = null;
+          }
+
+          print("User found. Is admin: $isAdminUser, Is active: $isActive");
+        } else {
           print("User details not found for ${session.user.id}");
+
+          try {
+            await _createUserRecord(session.user);
+            print("Created new user record for ${session.user.id}");
+            isAdminUser = false;
+          } catch (e) {
+            print("Error creating user record: $e");
+            isAdminUser = false;
+          }
+        }
       } catch (e) {
         print("Error fetching user admin status: $e");
         isAdminUser = false;
@@ -223,6 +249,22 @@ class _MyAppState extends State<MyApp> with TickerProviderStateMixin {
       });
     }
     await _saveAuthPreferences(loggedIn, isAdminUser, currentUserId);
+  }
+
+  Future<void> _createUserRecord(User user) async {
+    try {
+      await supabase.from('users').insert({
+        'id': user.id,
+        'email': user.email,
+        'full_name': user.email?.split('@')[0] ?? 'User',
+        'is_super_admin': false,
+        'is_active': true,
+        'created_at': DateTime.now().toIso8601String(),
+      });
+    } catch (e) {
+      print("Error inserting user record: $e");
+      rethrow;
+    }
   }
 
   void _setLoggedIn(bool loggedIn) {
@@ -458,17 +500,17 @@ class _MyAppState extends State<MyApp> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final themeData = ThemeData(
-      primarySwatch: MaterialColor(0xFF6e38c9, {
+      primarySwatch: MaterialColor(0xFF8c03e6, {
         50: Color(0xFFF3EFFF),
         100: Color(0xFFE1D7FF),
         200: Color(0xFFC4AFFF),
         300: Color(0xFFA687FF),
         400: Color(0xFF8A5FFF),
-        500: Color(0xFF6e38c9),
-        600: Color(0xFF5D2FB3),
-        700: Color(0xFF4C269D),
-        800: Color(0xFF3B1D87),
-        900: Color(0xFF2A1471),
+        500: Color(0xFF8c03e6),
+        600: Color(0xFF7B02C7),
+        700: Color(0xFF6A02A8),
+        800: Color(0xFF590189),
+        900: Color(0xFF48016A),
       }),
       scaffoldBackgroundColor: backgroundColor,
       colorScheme: ColorScheme.fromSeed(

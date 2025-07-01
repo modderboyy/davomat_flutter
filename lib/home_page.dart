@@ -46,6 +46,7 @@ class _HomePageState extends State<HomePage> {
   // Subscription status
   bool _isSubscriptionActive = true;
   String _subscriptionStatus = 'Active';
+  String _subscriptionType = 'free';
 
   // Calendar data
   DateTime _focusedDay = DateTime.now();
@@ -60,9 +61,9 @@ class _HomePageState extends State<HomePage> {
   bool _enableAttendanceMessage = false;
   String _attendanceMessage = '';
 
-  // Colors
-  static const Color primaryColor = Color(0xFF6e38c9);
-  static const Color secondaryColor = Color(0xFF9c6bff);
+  // Colors with #8c03e6
+  static const Color primaryColor = Color(0xFF8c03e6);
+  static const Color secondaryColor = Color(0xFFa855f7);
   static const Color backgroundColor = Color(0xFFF8F9FA);
   static const Color cardColor = Colors.white;
   static const Color textPrimary = Color(0xFF1A1A1A);
@@ -131,6 +132,8 @@ class _HomePageState extends State<HomePage> {
       'loading': 'Loading...',
       'version': 'Version 2.0.0',
       'app_name': 'Modern Attendance System',
+      'account_inactive':
+          'Your account is temporarily suspended, contact your company',
     },
     'uz': {
       'welcome_message': 'Xush kelibsiz',
@@ -195,6 +198,8 @@ class _HomePageState extends State<HomePage> {
       'loading': 'Yuklanmoqda...',
       'version': 'Versiya 2.0.0',
       'app_name': 'Zamonaviy Davomat Tizimi',
+      'account_inactive':
+          'Sizning akkountingiz vaqtinchalik yopilgan, o\'z kompaniyangizga murojaat qiling',
     },
     'ru': {
       'welcome_message': 'Добро пожаловать',
@@ -259,6 +264,8 @@ class _HomePageState extends State<HomePage> {
       'loading': 'Загрузка...',
       'version': 'Версия 2.0.0',
       'app_name': 'Современная система посещаемости',
+      'account_inactive':
+          'Ваш аккаунт временно заблокирован, обратитесь к вашей компании',
     },
   };
 
@@ -297,13 +304,26 @@ class _HomePageState extends State<HomePage> {
       final currentUser = supabase.auth.currentUser;
       if (currentUser == null) return;
 
+      // Check if user is active
       final userResponse = await supabase
           .from('users')
-          .select('company_id')
+          .select('company_id, is_active')
           .eq('id', currentUser.id)
           .maybeSingle();
 
       final companyId = userResponse?['company_id'];
+      final isActive = userResponse?['is_active'] ?? true;
+
+      if (!isActive) {
+        if (mounted) {
+          setState(() {
+            _isSubscriptionActive = false;
+            _subscriptionStatus = _translate('account_inactive');
+          });
+        }
+        return;
+      }
+
       if (companyId == null) return;
 
       final companyResponse = await supabase
@@ -313,10 +333,14 @@ class _HomePageState extends State<HomePage> {
           .maybeSingle();
 
       if (companyResponse != null) {
-        final subscriptionType = companyResponse['subscription_type'];
+        final subscriptionType = companyResponse['subscription_type'] ?? 'free';
         final subscriptionDate = companyResponse['subscription_date'];
 
-        if (subscriptionType == 'monthly' && subscriptionDate != null) {
+        setState(() {
+          _subscriptionType = subscriptionType;
+        });
+
+        if (subscriptionType != 'free' && subscriptionDate != null) {
           final subDate = DateTime.parse(subscriptionDate);
           final now = DateTime.now();
           final expiryDate =
@@ -329,6 +353,14 @@ class _HomePageState extends State<HomePage> {
               _isSubscriptionActive = isActive;
               _subscriptionStatus =
                   isActive ? _translate('active') : _translate('stopped');
+            });
+          }
+        } else {
+          // Free plan is always active
+          if (mounted) {
+            setState(() {
+              _isSubscriptionActive = true;
+              _subscriptionStatus = _translate('active');
             });
           }
         }
@@ -369,7 +401,8 @@ class _HomePageState extends State<HomePage> {
     try {
       final userDetails = await supabase
           .from('users')
-          .select('full_name, email, profile_image, position, company_id')
+          .select(
+              'full_name, email, profile_image, position, company_id, is_active')
           .eq('id', currentUser.id)
           .maybeSingle();
 
@@ -438,9 +471,6 @@ class _HomePageState extends State<HomePage> {
       print("Error loading attendance data: $e");
     }
   }
-
-  // Add other necessary methods from the previous home_page.dart here...
-  // (I'll include the key methods for QR scanning and data loading)
 
   Future<void> _loadUserDataFromPrefs() async {
     try {
@@ -531,7 +561,7 @@ class _HomePageState extends State<HomePage> {
     if (!_isSubscriptionActive) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(_translate('subscription_expired')),
+          content: Text(_subscriptionStatus),
           backgroundColor: errorColor,
         ),
       );
@@ -661,7 +691,7 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _handleScanLogic(String data) async {
     if (!_isSubscriptionActive) {
-      if (mounted) setState(() => message = _translate('subscription_expired'));
+      if (mounted) setState(() => message = _subscriptionStatus);
       return;
     }
 
@@ -751,13 +781,40 @@ class _HomePageState extends State<HomePage> {
 
   Color _getMessageColor() {
     if (message.contains('Error') ||
-        message == _translate('subscription_expired')) {
+        message == _translate('subscription_expired') ||
+        message == _translate('account_inactive')) {
       return errorColor;
     } else if (message == _translate('arrival_saved') ||
         message == _translate('departure_saved')) {
       return successColor;
     } else {
       return warningColor;
+    }
+  }
+
+  String _getSubscriptionPlanName() {
+    switch (_subscriptionType) {
+      case 'premium':
+        return 'Premium';
+      case 'enterprise':
+        return 'Enterprise';
+      case 'unlimited':
+        return 'Unlimited';
+      default:
+        return 'Free';
+    }
+  }
+
+  Color _getSubscriptionPlanColor() {
+    switch (_subscriptionType) {
+      case 'premium':
+        return primaryColor;
+      case 'enterprise':
+        return successColor;
+      case 'unlimited':
+        return errorColor;
+      default:
+        return textSecondary;
     }
   }
 
@@ -925,15 +982,17 @@ class _HomePageState extends State<HomePage> {
             padding: EdgeInsets.all(8),
             decoration: BoxDecoration(
               color: _isSubscriptionActive
-                  ? successColor.withOpacity(0.1)
+                  ? _getSubscriptionPlanColor().withOpacity(0.1)
                   : errorColor.withOpacity(0.1),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(
               _isSubscriptionActive
-                  ? CupertinoIcons.checkmark_circle_fill
+                  ? CupertinoIcons.star_fill
                   : CupertinoIcons.xmark_circle_fill,
-              color: _isSubscriptionActive ? successColor : errorColor,
+              color: _isSubscriptionActive
+                  ? _getSubscriptionPlanColor()
+                  : errorColor,
               size: 20,
             ),
           ),
@@ -943,18 +1002,20 @@ class _HomePageState extends State<HomePage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  _translate('subscription_status'),
+                  _getSubscriptionPlanName(),
                   style: TextStyle(
-                    fontSize: 14,
-                    color: textSecondary,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: _isSubscriptionActive
+                        ? _getSubscriptionPlanColor()
+                        : errorColor,
                   ),
                 ),
                 Text(
                   _subscriptionStatus,
                   style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: _isSubscriptionActive ? successColor : errorColor,
+                    fontSize: 14,
+                    color: textSecondary,
                   ),
                 ),
               ],
@@ -1367,7 +1428,7 @@ class _HomePageState extends State<HomePage> {
             Text(
               _isSubscriptionActive
                   ? _translate('scan_qr_code')
-                  : _translate('subscription_expired'),
+                  : _subscriptionStatus,
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 18,

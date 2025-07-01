@@ -6,10 +6,10 @@ import 'package:logger/logger.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher_string.dart';
-import 'package:DavomatYettilik/main.dart'; // supabase instance uchun
+import 'package:DavomatYettilik/main.dart';
 import 'package:DavomatYettilik/admin.dart';
 
-// Modern Animated Components
+// Modern Animated Components with #8c03e6 theme
 class ModernAnimatedCard extends StatefulWidget {
   final Widget child;
   final Duration duration;
@@ -91,7 +91,7 @@ class _ModernAnimatedCardState extends State<ModernAnimatedCard>
                       offset: const Offset(0, 10),
                     ),
                     BoxShadow(
-                      color: Colors.blue.withOpacity(0.05),
+                      color: const Color(0xFF8c03e6).withOpacity(0.1),
                       blurRadius: 40,
                       offset: const Offset(0, 20),
                     ),
@@ -184,18 +184,18 @@ class _ModernButtonState extends State<ModernButton>
                 gradient: widget.isPrimary
                     ? LinearGradient(
                         colors: [
-                          const Color(0xFF667eea),
-                          const Color(0xFF764ba2),
+                          const Color(0xFF8c03e6),
+                          const Color(0xFFa855f7),
                         ],
                       )
                     : null,
                 border: !widget.isPrimary
-                    ? Border.all(color: const Color(0xFF667eea), width: 2)
+                    ? Border.all(color: const Color(0xFF8c03e6), width: 2)
                     : null,
                 boxShadow: widget.isPrimary
                     ? [
                         BoxShadow(
-                          color: const Color(0xFF667eea).withOpacity(0.3),
+                          color: const Color(0xFF8c03e6).withOpacity(0.3),
                           blurRadius: 20,
                           offset: const Offset(0, 10),
                         ),
@@ -220,7 +220,7 @@ class _ModernButtonState extends State<ModernButton>
                               widget.icon,
                               color: widget.isPrimary
                                   ? Colors.white
-                                  : const Color(0xFF667eea),
+                                  : const Color(0xFF8c03e6),
                               size: 20,
                             ),
                             const SizedBox(width: 8),
@@ -230,7 +230,7 @@ class _ModernButtonState extends State<ModernButton>
                             style: TextStyle(
                               color: widget.isPrimary
                                   ? Colors.white
-                                  : const Color(0xFF667eea),
+                                  : const Color(0xFF8c03e6),
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
                             ),
@@ -283,7 +283,7 @@ class _ModernTextFieldState extends State<ModernTextField>
     );
     _colorAnimation = ColorTween(
       begin: Colors.grey.shade300,
-      end: const Color(0xFF667eea),
+      end: const Color(0xFF8c03e6),
     ).animate(_controller);
   }
 
@@ -306,7 +306,7 @@ class _ModernTextFieldState extends State<ModernTextField>
               boxShadow: [
                 BoxShadow(
                   color: _isFocused
-                      ? const Color(0xFF667eea).withOpacity(0.1)
+                      ? const Color(0xFF8c03e6).withOpacity(0.1)
                       : Colors.grey.withOpacity(0.05),
                   blurRadius: _isFocused ? 20 : 10,
                   offset: const Offset(0, 5),
@@ -423,8 +423,8 @@ class _LoadingIndicatorState extends State<LoadingIndicator>
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [
-                            const Color(0xFF667eea),
-                            const Color(0xFF764ba2),
+                            const Color(0xFF8c03e6),
+                            const Color(0xFFa855f7),
                           ],
                         ),
                         borderRadius: BorderRadius.circular(20),
@@ -469,7 +469,7 @@ class _ModernLoginPageState extends State<ModernLoginPage>
   late AnimationController _pageController;
   late Animation<Offset> _slideAnimation;
 
-  // Localization maps (keeping your existing translations)
+  // Localization maps
   final Map<String, String> _languageTitles = {
     'en': 'Attendance',
     'uz': 'Davomat',
@@ -644,8 +644,8 @@ class _ModernLoginPageState extends State<ModernLoginPage>
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              const Color(0xFF667eea),
-              const Color(0xFF764ba2),
+              const Color(0xFF8c03e6),
+              const Color(0xFFa855f7),
             ],
           ),
         ),
@@ -776,7 +776,7 @@ class _ModernLoginPageState extends State<ModernLoginPage>
                 child: const Icon(
                   Icons.business,
                   size: 60,
-                  color: Color(0xFF667eea),
+                  color: Color(0xFF8c03e6),
                 ),
               ),
             ),
@@ -861,57 +861,71 @@ class _ModernLoginViewState extends State<ModernLoginView> {
         password: password,
       );
 
-      // _signIn() metodida, muvaffaqiyatli login dan keyin:
       if (response.session != null) {
+        print("Login successful for user: ${response.user!.id}");
+
         final userDetails = await supabase
             .from('users')
-            .select('is_super_admin')
+            .select('is_super_admin, full_name, email, is_active')
             .eq('id', response.user!.id)
             .maybeSingle();
 
         final prefs = await SharedPreferences.getInstance();
 
-        if (userDetails != null && userDetails['is_super_admin'] == true) {
-          await prefs.setBool('is_super_admin', true);
-
-          // Admin sahifasiga o'tish
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => AdminPage()),
-          );
-        } else {
-          await prefs.setBool('is_super_admin', false);
-          widget.onLoginSuccess(true); // Oddiy user
-        }
-      }
-
-      if (response.session != null && response.user != null) {
-        final userDetails = await supabase
-            .from('users')
-            .select('is_super_admin')
-            .eq('xodim_id', response.user!.id) // 'id' o‘rniga 'xodim_id'
-            .maybeSingle();
-
-        if (userDetails != null && userDetails.containsKey('is_super_admin')) {
-          final prefs = await SharedPreferences.getInstance();
+        if (userDetails != null) {
+          print("User details found: $userDetails");
           final isSuperAdmin = userDetails['is_super_admin'] == true;
+          final isActive = userDetails['is_active'] ?? true;
+
           await prefs.setBool('is_super_admin', isSuperAdmin);
 
           if (isSuperAdmin) {
-            // Admin sahifasiga yo‘naltirish
-            // Navigator.pushReplacement(
-            //   context,
-            //   MaterialPageRoute(builder: (context) => AdminPage()),
-            // );
+            print("User is admin, navigating to AdminPage");
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => AdminPage()),
+            );
+          } else if (!isActive) {
+            // User is inactive, show message and logout
+            await supabase.auth.signOut();
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                      'Sizning akkountingiz vaqtinchalik yopilgan, o\'z kompaniyangizga murojaat qiling'),
+                  backgroundColor: Colors.red,
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10)),
+                ),
+              );
+            }
           } else {
+            print("User is regular user");
             widget.onLoginSuccess(true);
           }
         } else {
-          // Foydalanuvchi topilmadi yoki 'is_super_admin' maydoni yo‘q
-          debugPrint('Foydalanuvchi maʼlumotlari topilmadi yoki noto‘g‘ri');
+          print("User details not found, creating new record");
+
+          try {
+            await supabase.from('users').insert({
+              'id': response.user!.id,
+              'email': response.user!.email,
+              'full_name': response.user!.email?.split('@')[0] ?? 'User',
+              'is_super_admin': false,
+              'is_active': true,
+              'created_at': DateTime.now().toIso8601String(),
+            });
+
+            await prefs.setBool('is_super_admin', false);
+            print("Created new user record, regular user");
+            widget.onLoginSuccess(true);
+          } catch (e) {
+            print("Error creating user record: $e");
+            await prefs.setBool('is_super_admin', false);
+            widget.onLoginSuccess(true);
+          }
         }
-      } else {
-        debugPrint('Login muvaffaqiyatsiz: session yoki user null');
       }
     } on AuthException catch (error) {
       _logger.e('Login error: ${error.message}');
@@ -1081,26 +1095,32 @@ class _ModernRegistrationViewState extends State<ModernRegistrationView> {
       );
 
       if (authResponse.user != null) {
+        print("Auth user created: ${authResponse.user!.id}");
+
         final companyResponse = await supabase.from('companies').insert({
           'company_name': companyName,
+          'subscription_type': 'free',
+          'created_at': DateTime.now().toIso8601String(),
         }).select('id');
 
         final companyId = companyResponse[0]['id'];
+        print("Company created: $companyId");
 
-        await supabase.from('users').upsert({
-          'id': authResponse.user!.id, // Bu o'zgarmas
-          'xodim_id': authResponse.user!.id, // Bu qo'shilsin
+        await supabase.from('users').insert({
+          'id': authResponse.user!.id,
           'email': adminEmail,
+          'full_name': "Admin",
           'is_super_admin': true,
-          'lavozim': companyName,
+          'is_active': true,
+          'position': 'Administrator',
           'company_id': companyId,
-          'name': "Admin",
-        }, onConflict: 'id');
+          'created_at': DateTime.now().toIso8601String(),
+        });
+
+        print("User record created successfully");
 
         final prefs = await SharedPreferences.getInstance();
         await prefs.setBool('is_super_admin', true);
-
-        // Removed login_activities insert - this was causing the foreign key error
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -1113,7 +1133,6 @@ class _ModernRegistrationViewState extends State<ModernRegistrationView> {
             ),
           );
 
-          // Navigate to admin page or handle success
           widget.onViewToggle();
         }
       }

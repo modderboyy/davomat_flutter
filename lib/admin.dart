@@ -1,1077 +1,2256 @@
-// --- admin.dart ---
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:logger/logger.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
-import 'dart:io' as platform_io;
-import 'dart:ui';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'package:flutter/services.dart';
-import 'package:timezone/timezone.dart' as tz;
-import 'package:timezone/data/latest.dart' as tzdata;
-import 'dart:convert';
-import 'admin_user_search.dart';
-import 'app_bar/admin_info_custom_appbar.dart';
-import 'apps.dart';
-import 'webview_page.dart';
-import 'widgets/custom_bottom_nav.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:DavomatYettilik/main.dart';
+import 'package:DavomatYettilik/settings_page.dart';
+import 'package:DavomatYettilik/admin_employee_add_widget.dart';
+import 'package:DavomatYettilik/webview_page.dart';
+import 'dart:typed_data';
+import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:ui';
 
 class AdminPage extends StatefulWidget {
-  const AdminPage({Key? key}) : super(key: key);
+  const AdminPage({super.key});
 
   @override
-  _AdminPageState createState() => _AdminPageState();
+  State<AdminPage> createState() => _AdminPageState();
 }
 
-class _AdminPageState extends State<AdminPage> {
-  final _logger = Logger();
-  String? _companyName;
-  bool _isLoading = true;
-  double _balance = 0.0;
-  int _employeeCount = 0;
-  int _freeEmployeeLimit = 5;
-  double _costPerExtraEmployee = 0.9;
-  List<Map<String, dynamic>> _transactions = [];
+class _AdminPageState extends State<AdminPage> with TickerProviderStateMixin {
+  int _currentTab = 0;
+  late TabController _tabController;
+  late AnimationController _animationController;
+  late AnimationController _pulseController;
 
-  DateTime? _lastUpdated;
-  String? _userEmail;
-  String? _userId;
+  // Search functionality
+  final TextEditingController _searchController = TextEditingController();
+  List<Map<String, dynamic>> _allEmployees = [];
+  List<Map<String, dynamic>> _filteredEmployees = [];
+  bool _showSearchResults = false;
+
+  // Modern colors with #8c03e6
+  static const Color primaryColor = Color(0xFF8c03e6);
+  static const Color secondaryColor = Color(0xFFa855f7);
+  static const Color backgroundColor = Color(0xFFF8F9FA);
+  static const Color cardColor = Colors.white;
+  static const Color textPrimary = Color(0xFF1A1A1A);
+  static const Color textSecondary = Color(0xFF6B7280);
+  static const Color successColor = Color(0xFF10B981);
+  static const Color warningColor = Color(0xFFF59E0B);
+  static const Color errorColor = Color(0xFFEF4444);
+
+  // Data
+  String? _companyName;
+  String? _companyLogo;
   String? _companyId;
+  String? _adminProfileImage;
+  String? _adminName;
+  String? _adminEmail;
+  int _employeeCount = 0;
+  int? _employeeLimit;
+  List<Map<String, dynamic>> _employees = [];
+  List<Map<String, dynamic>> _attendanceData = [];
+  List<Map<String, dynamic>> _notifications = [];
+  DateTime _selectedDate = DateTime.now();
+  String _attendanceFilter = 'Barchasi';
+
+  // Company settings
+  TimeOfDay _arrivalTime = TimeOfDay(hour: 9, minute: 0);
+  TimeOfDay _departureTime = TimeOfDay(hour: 18, minute: 0);
+  int _graceMinutes = 15;
+
+  // Loading states
+  bool _isLoading = true;
+  bool _isUploadingLogo = false;
 
   String _currentLanguage = 'uz';
-  int _selectedIndex = 0;
 
-  final Map<String, Map<String, String>> _localizedStrings = const {
+  final Map<String, Map<String, String>> _localizedStrings = {
     'en': {
-      'company_name': 'Company Name',
-      'balance': 'Balance',
-      'deposit_funds': 'Deposit Funds',
-      'admin_panel_title': "Admin Panel",
-      'last_updated_data': 'Updated: {datetime}',
-      'no_internet': 'No internet connection',
-      'admin_panel_login': 'Admin Panel Login',
-      'admin_credentials': 'Admin Credentials',
-      'email': 'Email',
-      'password': 'Password',
-      'copied': 'Copied',
-      'open': 'Open Website',
-      'close': 'Close',
-      'home': 'Home',
-      'info': 'Info',
-      'apps': 'Apps',
-      'general_info': 'General Info',
-      'user_email': 'User Email',
-      'company_id': 'Company ID',
-      'loading': 'Loading...',
-      'company_id_not_found':
-          'Company ID not found for user. Please contact support.',
-      'refresh': 'Refresh',
-      'admin_panel_webview_title': 'Admin Control Panel',
-      'deposit_webview_title': 'Deposit Funds',
-      'cached_data_notice': 'Displaying cached data. Connect to refresh.',
+      'admin_panel': 'Admin Panel',
+      'dashboard': 'Dashboard',
       'employees': 'Employees',
-      'free_employees': 'Free employees: {count}',
-      'paid_employees': 'Paid employees: {count}',
-      'monthly_cost': 'Estimated monthly cost: \${cost}',
-      'insufficient_balance_for_new_employee':
-          'Insufficient balance to add new employees. Please deposit funds.',
-      'cost_per_additional_employee':
-          'Cost per additional employee: \${cost}/month',
-      'total_employees': 'Total employees: {count}',
-      'error_fetching_data': 'Error fetching data: {error}',
-      'settings_not_found':
-          'Billing details (cost per employee, free limit) not found. Contact support.',
-      'transactions_history': 'Transactions History',
-      'no_transactions_found': 'No transactions found.',
-      'transaction_type': 'Type',
-      'amount': 'Amount',
-      'date': 'Date',
-      'description': 'Description',
-      'payment_method': 'Method',
+      'attendance': 'Attendance',
+      'settings': 'Settings',
+      'company_info': 'Company Information',
+      'balance': 'Balance',
+      'employee_count': 'Employees',
+      'upload_logo': 'Upload Logo',
+      'change_logo': 'Change Logo',
+      'arrival_time': 'Arrival Time',
+      'departure_time': 'Departure Time',
+      'grace_period': 'Grace Period (minutes)',
+      'save_settings': 'Save Settings',
+      'attendance_filter': 'Filter',
+      'all': 'All',
+      'present': 'Present',
+      'absent': 'Absent',
+      'late': 'Late',
+      'loading': 'Loading...',
+      'no_data': 'No data available',
+      'success': 'Success',
+      'error': 'Error',
+      'settings_saved': 'Settings saved successfully',
+      'logo_uploaded': 'Logo uploaded successfully',
+      'select_date': 'Select Date',
+      'employee_name': 'Employee Name',
+      'check_in': 'Check In',
+      'check_out': 'Check Out',
       'status': 'Status',
-      'error_fetching_transactions': 'Error fetching transactions: {error}',
+      'late_minutes': 'Late (min)',
+      'search_employees': 'Search employees...',
+      'notifications': 'Notifications',
+      'profile': 'Profile',
+      'logout': 'Logout',
+      'top_up_balance': 'Top Up Balance',
+      'admin_panel_access': 'Admin Panel Access',
+      'external_browser': 'External Browser',
+      'in_app_browser': 'In-App Browser',
+      'logout_confirmation': 'Are you sure you want to logout?',
+      'cancel': 'Cancel',
+      'confirm': 'Confirm',
+      'add_employee': 'Add Employee',
+      'no_employees': 'No employees found',
+      'add_first_employee': 'Add your first employee',
     },
     'uz': {
-      'company_name': 'Kompaniya nomi',
-      'balance': 'Balans',
-      'deposit_funds': 'Balansni To\'ldirish',
-      'admin_panel_title': "Admin Panel",
-      'last_updated_data': 'Yangilandi: {datetime}',
-      'no_internet': 'Internet yo\'q',
-      'admin_panel_login': 'Admin Kirish',
-      'admin_credentials': 'Admin Ma\'lumotlari',
-      'email': 'Email',
-      'password': 'Parol',
-      'copied': 'Nusxalandi',
-      'open': 'Saytni Ochish',
-      'close': 'Yopish',
-      'home': 'Asosiy',
-      'info': 'Ma\'lumot',
-      'apps': 'Ilovalar',
-      'general_info': 'Umumiy Ma\'lumot',
-      'user_email': 'Foydalanuvchi Email',
-      'company_id': 'Kompaniya IDsi',
-      'loading': 'Yuklanmoqda...',
-      'company_id_not_found':
-          'Foydalanuvchi uchun Kompaniya ID topilmadi. Qo\'llab-quvvatlashga murojaat qiling.',
-      'refresh': 'Yangilash',
-      'admin_panel_webview_title': 'Admin Boshqaruv Paneli',
-      'deposit_webview_title': 'Balansni To\'ldirish',
-      'cached_data_notice':
-          'Keshdagi ma\'lumotlar ko\'rsatilmoqda. Yangilash uchun internetga ulaning.',
+      'admin_panel': 'Admin Panel',
+      'dashboard': 'Boshqaruv',
       'employees': 'Xodimlar',
-      'free_employees': 'Bepul xodimlar: {count} ta',
-      'paid_employees': 'Pullik xodimlar: {count} ta',
-      'monthly_cost': 'Taxminiy oylik xarajat: \${cost}',
-      'insufficient_balance_for_new_employee':
-          'Yangi xodim qo\'shish uchun balans yetarli emas. Iltimos, balansni to\'ldiring.',
-      'cost_per_additional_employee':
-          'Har bir qo\'shimcha xodim narxi: \${cost}/oyiga',
-      'total_employees': 'Jami xodimlar: {count} ta',
-      'error_fetching_data': 'Ma\'lumotlarni yuklashda xatolik: {error}',
-      'settings_not_found':
-          'Hisob-kitob ma\'lumotlari (xodim narxi, bepul limit) topilmadi. Qo\'llab-quvvatlashga murojaat qiling.',
-      'transactions_history': 'Tranzaksiyalar Tarixi',
-      'no_transactions_found': 'Tranzaksiyalar topilmadi.',
-      'transaction_type': 'Turi',
-      'amount': 'Miqdor',
-      'date': 'Sana',
-      'description': 'Tavsif',
-      'payment_method': 'Usul',
-      'status': 'Holati',
-      'error_fetching_transactions':
-          'Tranzaksiyalarni yuklashda xatolik: {error}',
+      'attendance': 'Davomat',
+      'settings': 'Sozlamalar',
+      'company_info': 'Kompaniya ma\'lumotlari',
+      'balance': 'Balans',
+      'employee_count': 'Xodimlar',
+      'upload_logo': 'Logo yuklash',
+      'change_logo': 'Logo o\'zgartirish',
+      'arrival_time': 'Kelish vaqti',
+      'departure_time': 'Ketish vaqti',
+      'grace_period': 'Hisobsiz vaqt (minut)',
+      'save_settings': 'Sozlamalarni saqlash',
+      'attendance_filter': 'Filter',
+      'all': 'Barchasi',
+      'present': 'Kelgan',
+      'absent': 'Kelmagan',
+      'late': 'Kechikkan',
+      'loading': 'Yuklanmoqda...',
+      'no_data': 'Ma\'lumot yo\'q',
+      'success': 'Muvaffaqiyat',
+      'error': 'Xatolik',
+      'settings_saved': 'Sozlamalar saqlandi',
+      'logo_uploaded': 'Logo yuklandi',
+      'select_date': 'Sana tanlash',
+      'employee_name': 'Xodim nomi',
+      'check_in': 'Kelish',
+      'check_out': 'Ketish',
+      'status': 'Holat',
+      'late_minutes': 'Kechikish (min)',
+      'search_employees': 'Xodimlarni qidirish...',
+      'notifications': 'Bildirishnomalar',
+      'profile': 'Profil',
+      'logout': 'Chiqish',
+      'top_up_balance': 'Hisob to\'ldirish',
+      'admin_panel_access': 'Admin panelga kirish',
+      'external_browser': 'Tashqi brauzer orqali kirish',
+      'in_app_browser': 'Dastur ichida kirish',
+      'logout_confirmation': 'Rostdan ham chiqmoqchimisiz?',
+      'cancel': 'Bekor qilish',
+      'confirm': 'Tasdiqlash',
+      'add_employee': 'Xodim Qo\'shish',
+      'no_employees': 'Xodimlar topilmadi',
+      'add_first_employee': 'Birinchi xodimingizni qo\'shing',
     },
     'ru': {
-      'company_name': 'Название компании',
-      'balance': 'Баланс',
-      'deposit_funds': 'Пополнить баланс',
-      'admin_panel_title': "Панель Администратора",
-      'last_updated_data': 'Обновлено: {datetime}',
-      'no_internet': 'Нет интернета',
-      'admin_panel_login': 'Вход Админа',
-      'admin_credentials': 'Данные Админа',
-      'email': 'Эл. адрес',
-      'password': 'Пароль',
-      'copied': 'Скопировано',
-      'open': 'Открыть Сайт',
-      'close': 'Закрыть',
-      'home': 'Главная',
-      'info': 'Инфо',
-      'apps': 'Приложения',
-      'general_info': 'Общая Инфо',
-      'user_email': 'Email',
-      'company_id': 'ID Компании',
-      'loading': 'Загрузка...',
-      'company_id_not_found':
-          'ID Компании не найден для пользователя. Обратитесь в поддержку.',
-      'refresh': 'Обновить',
-      'admin_panel_webview_title': 'Панель Управления Администратора',
-      'deposit_webview_title': 'Пополнить Баланс',
-      'cached_data_notice':
-          'Отображаются кэшированные данные. Подключитесь к интернету для обновления.',
+      'admin_panel': 'Админ Панель',
+      'dashboard': 'Панель управления',
       'employees': 'Сотрудники',
-      'free_employees': 'Бесплатные сотрудники: {count}',
-      'paid_employees': 'Платные сотрудники: {count}',
-      'monthly_cost': 'Примерная месячная стоимость: \${cost}',
-      'insufficient_balance_for_new_employee':
-          'Недостаточно средств для добавления новых сотрудников. Пожалуйста, пополните баланс.',
-      'cost_per_additional_employee':
-          'Стоимость каждого дополнительного сотрудника: \${cost}/месяц',
-      'total_employees': 'Всего сотрудников: {count}',
-      'error_fetching_data': 'Ошибка загрузки данных: {error}',
-      'settings_not_found':
-          'Платежные данные (цена за сотрудника, бесплатный лимит) не найдены. Обратитесь в поддержку.',
-      'transactions_history': 'История транзакций',
-      'no_transactions_found': 'Транзакции не найдены.',
-      'transaction_type': 'Тип',
-      'amount': 'Сумма',
-      'date': 'Дата',
-      'description': 'Описание',
-      'payment_method': 'Метод',
+      'attendance': 'Посещаемость',
+      'settings': 'Настройки',
+      'company_info': 'Информация о компании',
+      'balance': 'Баланс',
+      'employee_count': 'Сотрудники',
+      'upload_logo': 'Загрузить логотип',
+      'change_logo': 'Изменить логотип',
+      'arrival_time': 'Время прихода',
+      'departure_time': 'Время ухода',
+      'grace_period': 'Льготное время (минуты)',
+      'save_settings': 'Сохранить настройки',
+      'attendance_filter': 'Фильтр',
+      'all': 'Все',
+      'present': 'Присутствовал',
+      'absent': 'Отсутствовал',
+      'late': 'Опоздал',
+      'loading': 'Загрузка...',
+      'no_data': 'Нет данных',
+      'success': 'Успех',
+      'error': 'Ошибка',
+      'settings_saved': 'Настройки сохранены',
+      'logo_uploaded': 'Логотип загружен',
+      'select_date': 'Выбрать дату',
+      'employee_name': 'Имя сотрудника',
+      'check_in': 'Приход',
+      'check_out': 'Уход',
       'status': 'Статус',
-      'error_fetching_transactions': 'Ошибка загрузки транзакций: {error}',
+      'late_minutes': 'Опоздание (мин)',
+      'search_employees': 'Поиск сотрудников...',
+      'notifications': 'Уведомления',
+      'profile': 'Профиль',
+      'logout': 'Выйти',
+      'top_up_balance': 'Пополнить баланс',
+      'admin_panel_access': 'Доступ к админ панели',
+      'external_browser': 'Внешний браузер',
+      'in_app_browser': 'Встроенный браузер',
+      'logout_confirmation': 'Вы уверены, что хотите выйти?',
+      'cancel': 'Отмена',
+      'confirm': 'Подтвердить',
+      'add_employee': 'Добавить Сотрудника',
+      'no_employees': 'Сотрудники не найдены',
+      'add_first_employee': 'Добавьте первого сотрудника',
     },
   };
-
-  String _infoFilter = 'Barchasi';
-  final List<String> _infoFilterOptions = [
-    'Barchasi',
-    'Xodimlar',
-    'Balans',
-    'Tarix'
-  ];
-
-  String _translate(String key, [Map<String, dynamic>? params]) {
-    final langKey =
-        ['en', 'uz', 'ru'].contains(_currentLanguage) ? _currentLanguage : 'uz';
-    String? translatedValue =
-        _localizedStrings[langKey]?[key] ?? _localizedStrings['uz']?[key];
-    translatedValue ??= key;
-    if (params != null) {
-      params.forEach((pKey, value) {
-        translatedValue =
-            translatedValue!.replaceAll('{$pKey}', value.toString());
-      });
-    }
-    return translatedValue!;
-  }
 
   @override
   void initState() {
     super.initState();
-    tzdata.initializeTimeZones();
-    _initializeAdminPage();
+    _tabController = TabController(length: 4, vsync: this);
+    _animationController = AnimationController(
+      duration: Duration(milliseconds: 300),
+      vsync: this,
+    );
+    _pulseController = AnimationController(
+      duration: Duration(milliseconds: 1500),
+      vsync: this,
+    )..repeat();
+    _searchController.addListener(_onSearchChanged);
+    _loadLanguagePreference();
+    _loadAdminData();
   }
 
-  Future<void> _initializeAdminPage() async {
-    if (!mounted) return;
-    setState(() => _isLoading = true);
-    await _loadPreferences();
-    await _fetchAdminData();
-    if (mounted) setState(() => _isLoading = false);
+  @override
+  void dispose() {
+    _tabController.dispose();
+    _animationController.dispose();
+    _pulseController.dispose();
+    _searchController.dispose();
+    super.dispose();
   }
 
-  Future<void> _loadPreferences() async {
-    try {
-      SharedPreferences prefs = await SharedPreferences.getInstance();
+  Future<void> _loadLanguagePreference() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    setState(() {
       _currentLanguage = prefs.getString('language') ?? 'uz';
-      _userEmail = prefs.getString('cachedAdminUserEmail');
-      _companyName = prefs.getString('cachedAdminCompanyName');
-      _companyId = prefs.getString('cachedAdminCompanyId');
-      _balance = prefs.getDouble('cachedAdminBalance') ?? 0.0;
-      _employeeCount = prefs.getInt('cachedAdminEmployeeCount') ?? 0;
-      _freeEmployeeLimit = prefs.getInt('cachedAdminFreeEmployeeLimit') ?? 5;
-      _costPerExtraEmployee =
-          prefs.getDouble('cachedAdminCostPerEmployee') ?? 0.9;
-      _lastUpdated = prefs.getString('cachedAdminLastUpdated') != null
-          ? DateTime.tryParse(prefs.getString('cachedAdminLastUpdated')!)
-          : null;
-
-      String? transactionsJson =
-          prefs.getString('cachedAdminTransactions_${_companyId ?? ""}');
-      if (transactionsJson != null) {
-        try {
-          _transactions =
-              List<Map<String, dynamic>>.from(jsonDecode(transactionsJson));
-        } catch (e) {
-          _logger.e("Error decoding cached transactions: $e");
-          _transactions = []; // Xatolikda bo'sh ro'yxat
-        }
-      } else {
-        _transactions = [];
-      }
-
-      if (_companyId == null)
-        _logger.i("AdminPage: No cached company ID found.");
-    } catch (e, stackTrace) {
-      _logger.e("AdminPage: Error loading preferences",
-          error: e, stackTrace: stackTrace);
-    }
-    if (mounted) setState(() {});
+    });
   }
 
-  Future<void> _saveAdminDataToPrefs() async {
-    try {
-      SharedPreferences prefs = await SharedPreferences.getInstance();
-      if (_userEmail != null)
-        await prefs.setString('cachedAdminUserEmail', _userEmail!);
-      else
-        await prefs.remove('cachedAdminUserEmail');
-      if (_companyName != null)
-        await prefs.setString('cachedAdminCompanyName', _companyName!);
-      else
-        await prefs.remove('cachedAdminCompanyName');
-      if (_companyId != null)
-        await prefs.setString('cachedAdminCompanyId', _companyId!);
-      else
-        await prefs.remove('cachedAdminCompanyId');
-      await prefs.setDouble('cachedAdminBalance', _balance);
-      await prefs.setInt('cachedAdminEmployeeCount', _employeeCount);
-      await prefs.setInt('cachedAdminFreeEmployeeLimit', _freeEmployeeLimit);
-      await prefs.setDouble(
-          'cachedAdminCostPerEmployee', _costPerExtraEmployee);
-      if (_lastUpdated != null)
-        await prefs.setString(
-            'cachedAdminLastUpdated', _lastUpdated!.toIso8601String());
-      else
-        await prefs.remove('cachedAdminLastUpdated');
+  String _translate(String key) {
+    return _localizedStrings[_currentLanguage]?[key] ??
+        _localizedStrings['uz']?[key] ??
+        key;
+  }
 
-      // Tranzaksiyalarni keshga saqlashda DateTime ni stringga o'tkazish
-      List<Map<String, dynamic>> transactionsToCache = _transactions.map((tr) {
-        Map<String, dynamic> newTr = Map.from(tr);
-        if (newTr['created_at'] is DateTime) {
-          newTr['created_at'] =
-              (newTr['created_at'] as DateTime).toIso8601String();
-        }
-        return newTr;
-      }).toList();
-      if (_companyId != null) {
-        await prefs.setString('cachedAdminTransactions_${_companyId!}',
-            jsonEncode(transactionsToCache));
+  void _onSearchChanged() {
+    final query = _searchController.text.toLowerCase();
+    setState(() {
+      _showSearchResults = query.isNotEmpty;
+      if (query.isNotEmpty) {
+        _filteredEmployees = _allEmployees.where((user) {
+          final name = (user['full_name'] ?? '').toString().toLowerCase();
+          final email = (user['email'] ?? '').toString().toLowerCase();
+          final position = (user['position'] ?? '').toString().toLowerCase();
+          return name.contains(query) ||
+              email.contains(query) ||
+              position.contains(query);
+        }).toList();
       } else {
-        await prefs.remove(
-            'cachedAdminTransactions_'); // Agar companyId bo'lmasa, umumiy keshni tozalash (yoki o'chirish)
+        _filteredEmployees = _allEmployees;
       }
+    });
+  }
+
+  Future<void> _loadAdminData() async {
+    setState(() => _isLoading = true);
+
+    try {
+      final userId = supabase.auth.currentUser?.id;
+      if (userId == null) return;
+
+      // Get admin profile
+      final adminResponse = await supabase
+          .from('users')
+          .select('company_id, full_name, email, profile_image')
+          .eq('id', userId)
+          .maybeSingle();
+
+      final companyId = adminResponse?['company_id'];
+      if (companyId == null) return;
+
+      setState(() {
+        _companyId = companyId;
+        _adminName = adminResponse?['full_name'];
+        _adminEmail = adminResponse?['email'];
+        _adminProfileImage = adminResponse?['profile_image'];
+      });
+
+      // Get company info and subscription details
+      final companyResponse = await supabase
+          .from('companies')
+          .select(
+              'company_name, logo_url, kelish_vaqti, ketish_vaqti, hisobsiz_vaqt, employee_limit')
+          .eq('id', companyId)
+          .maybeSingle();
+
+      if (companyResponse != null) {
+        setState(() {
+          _companyName = companyResponse['company_name'];
+          _companyLogo = companyResponse['logo_url'];
+          _employeeLimit = companyResponse['employee_limit'];
+
+          // Parse time settings
+          if (companyResponse['kelish_vaqti'] != null) {
+            final arrivalParts = companyResponse['kelish_vaqti'].split(':');
+            _arrivalTime = TimeOfDay(
+              hour: int.parse(arrivalParts[0]),
+              minute: int.parse(arrivalParts[1]),
+            );
+          }
+
+          if (companyResponse['ketish_vaqti'] != null) {
+            final departureParts = companyResponse['ketish_vaqti'].split(':');
+            _departureTime = TimeOfDay(
+              hour: int.parse(departureParts[0]),
+              minute: int.parse(departureParts[1]),
+            );
+          }
+
+          _graceMinutes = companyResponse['hisobsiz_vaqt'] ?? 15;
+        });
+      }
+
+      // Get employees
+      final employeesResponse = await supabase
+          .from('users')
+          .select(
+              'id, full_name, name, email, position, profile_image, is_active')
+          .eq('company_id', companyId)
+          .neq('is_super_admin', true);
+
+      setState(() {
+        _employees = List<Map<String, dynamic>>.from(employeesResponse);
+        _allEmployees = _employees;
+        _filteredEmployees = _employees;
+        _employeeCount = _employees.length;
+      });
+
+      // Load notifications
+      await _loadNotifications();
+
+      // Load attendance for selected date
+      await _loadAttendanceData();
     } catch (e) {
-      _logger.e("AdminPage: Error saving admin data to prefs: $e");
+      print('Error loading admin data: $e');
+    } finally {
+      setState(() => _isLoading = false);
     }
   }
 
-  Future<void> _setLanguagePreference(String language) async {
+  Future<void> _loadNotifications() async {
     try {
-      SharedPreferences prefs = await SharedPreferences.getInstance();
-      await prefs.setString('language', language);
-      if (mounted) setState(() => _currentLanguage = language);
-    } catch (e, stackTrace) {
-      _logger.e("Error saving language", error: e, stackTrace: stackTrace);
+      if (_companyId == null) return;
+
+      final notificationsResponse = await supabase
+          .from('notifications')
+          .select('*')
+          .or('type.eq.public,and(type.eq.private,company_id.eq.$_companyId)')
+          .order('created_at', ascending: false)
+          .limit(50);
+
+      setState(() {
+        _notifications = List<Map<String, dynamic>>.from(notificationsResponse);
+      });
+    } catch (e) {
+      print('Error loading notifications: $e');
     }
   }
 
-  // --- admin.dart ---
-// ... (yuqoridagi importlar va klass e'lonlari)
-
-  Future<void> _fetchAdminData() async {
-    if (!mounted) return;
-    bool showLoadingIndicator = _companyId == null && _userEmail == null;
-    if (showLoadingIndicator) setState(() => _isLoading = true);
-
-    // Vaqtinchalik keshni saqlash (agar fetch xato bersa, qaytarish uchun)
-    String? tempCompanyName = _companyName;
-    String? tempCompanyId = _companyId;
-    String? tempUserEmail = _userEmail;
-    double tempBalance = _balance;
-    int tempEmployeeCount = _employeeCount;
-    int tempFreeLimit = _freeEmployeeLimit;
-    double tempCostPerEmployee = _costPerExtraEmployee;
-    DateTime? tempLastUpdated = _lastUpdated;
-    List<Map<String, dynamic>> tempTransactions = List.from(_transactions);
-
+  Future<void> _loadAttendanceData() async {
     try {
-      final user = Supabase.instance.client.auth.currentUser;
-      if (user == null) throw Exception("User not logged in");
-      _userId = user.id;
-      final currentUserEmail = user.email;
+      final userId = supabase.auth.currentUser?.id;
+      if (userId == null) return;
 
-      final profileData = await Supabase.instance.client
+      final userResponse = await supabase
           .from('users')
           .select('company_id')
-          .eq('id', _userId!)
+          .eq('id', userId)
           .maybeSingle();
 
-      final fetchedCompanyId = profileData?['company_id'] as String?;
+      final companyId = userResponse?['company_id'];
+      if (companyId == null) return;
 
-      if (fetchedCompanyId == null) {
-        _logger.w("No company_id found for user: $_userId");
-        if (mounted) {
-          setState(() {
-            _companyName = "N/A";
-            _companyId = null;
-            _userEmail = currentUserEmail ?? _userEmail;
-            _balance = 0.0;
-            _employeeCount = 0;
-            _lastUpdated = DateTime.now();
-            _transactions = [];
-          });
-          _showErrorSnackbar(_translate('company_id_not_found'),
-              isWarning: true);
-        }
-        await _saveAdminDataToPrefs(); // Keshni bo'sh holat bilan yangilash
-        return;
-      }
+      final dateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
 
-      // Ma'lumotlarni ketma-ket olish
-      final settingsData = await Supabase.instance.client
-          .from('details')
-          .select('dollar_per_employee, free_employee_limit')
-          .limit(1)
-          .maybeSingle();
+      final attendanceResponse = await supabase.from('davomat').select('''
+            xodim_id,
+            kelish_vaqti,
+            ketish_vaqti,
+            status,
+            kechikish_minut,
+            users!davomat_xodim_id_fkey(full_name, name)
+          ''').eq('company_id', companyId).eq('kelish_sana', dateStr);
 
-      final companyDetails = await Supabase.instance.client
-          .from('companies')
-          .select('company_name, balance')
-          .eq('id', fetchedCompanyId)
-          .single();
-
-      final countResponse = await Supabase.instance.client
-          .from('users')
-          .count(CountOption.exact) // Bu to'g'ridan-to'g'ri int qaytaradi
-          .eq('company_id', fetchedCompanyId)
-          .eq('is_super_admin', false);
-
-      final transactionsResponse = await Supabase.instance.client
-          .from('transactions')
-          .select() // Generic turini olib tashladik
-          .eq('company_id', fetchedCompanyId)
-          .order('created_at', ascending: false)
-          .limit(20); // Natija List<dynamic> bo'ladi
-
-      if (settingsData == null) {
-        _logger.e("Billing details not found in 'details' table.");
-        if (mounted) {
-          _showErrorSnackbar(_translate('settings_not_found'), isWarning: true);
-          // _freeEmployeeLimit va _costPerExtraEmployee allaqachon _loadPreferences da
-          // keshdan yoki sukut bo'yicha o'rnatilgan, shuning uchun bu yerda
-          // ularni qayta o'rnatish shart emas, agar serverdan kelmasa,
-          // avvalgi (keshdagi/sukutdagi) qiymatlar ishlatiladi.
-        }
-      } else {
-        // Agar serverdan qiymat kelsa, state o'zgaruvchilarini yangilaymiz
-        _freeEmployeeLimit =
-            (settingsData['free_employee_limit'] as num?)?.toInt() ??
-                _freeEmployeeLimit;
-        _costPerExtraEmployee =
-            (settingsData['dollar_per_employee'] as num?)?.toDouble() ??
-                _costPerExtraEmployee;
-      }
-
-      if (mounted) {
-        setState(() {
-          _companyName = companyDetails['company_name'] as String?;
-          _companyId = fetchedCompanyId;
-          _userEmail = currentUserEmail ?? _userEmail;
-          _balance = (companyDetails['balance'] as num?)?.toDouble() ?? 0.0;
-          _employeeCount = countResponse; // Bu endi to'g'ridan-to'g'ri int
-          // transactionsResponse List<dynamic> bo'lgani uchun List<Map<String, dynamic>> ga o'tkazamiz
-          _transactions = List<Map<String, dynamic>>.from(
-              transactionsResponse as List? ?? []);
-          _lastUpdated = DateTime.now();
-        });
-      }
-      await _saveAdminDataToPrefs(); // Yangi ma'lumotlarni keshga saqlash
-    } catch (e, stacktrace) {
-      _logger.e('Error in _fetchAdminData', error: e, stackTrace: stacktrace);
-      if (mounted) {
-        _showErrorSnackbar(_translate('cached_data_notice'), isWarning: true);
-        // Xatolikda eski keshni tiklash
-        setState(() {
-          _companyName = tempCompanyName;
-          _companyId = tempCompanyId;
-          _userEmail = tempUserEmail;
-          _balance = tempBalance;
-          _employeeCount = tempEmployeeCount;
-          _freeEmployeeLimit = tempFreeLimit;
-          _costPerExtraEmployee = tempCostPerEmployee;
-          _transactions = tempTransactions;
-          _lastUpdated = tempLastUpdated;
-        });
-      }
-    } finally {
-      if (mounted && showLoadingIndicator) {
-        setState(() => _isLoading = false);
-      } else if (mounted) {
-        // Agar showLoadingIndicator false bo'lsa ham, setState chaqirish
-        // keshdan yuklangan ma'lumotlar bilan UI ning yangilanishini ta'minlashi mumkin.
-        setState(() {});
-      }
+      setState(() {
+        _attendanceData = List<Map<String, dynamic>>.from(attendanceResponse);
+      });
+    } catch (e) {
+      print('Error loading attendance data: $e');
     }
   }
 
-  // ... (qolgan metodlar va build metodi)
-
-  void _showErrorSnackbar(String message, {bool isWarning = false}) {
-    if (!mounted || !context.mounted) return;
-    ScaffoldMessenger.of(context).removeCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor:
-            isWarning ? Colors.orange.shade800 : Colors.red.shade700,
-        duration: Duration(seconds: isWarning ? 4 : 3),
+  void _showAddEmployeeModal() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AdminEmployeeAddWidget(
+        companyId: _companyId!,
+        employeeLimit: _employeeLimit,
+        currentEmployeeCount: _employeeCount,
+        currentLanguage: _currentLanguage,
+        translate: _translate,
+        onEmployeeAdded: () {
+          _loadAdminData(); // Refresh data
+        },
       ),
     );
   }
 
-  void _navigateToInAppWebView(String url, String title) {
-    if (!mounted || !context.mounted) return;
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => InAppWebViewPage(
-          url: url,
-          title: title,
-          currentLanguage: _currentLanguage,
+  void _showNotifications() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+        child: Container(
+          height: MediaQuery.of(context).size.height * 0.8,
+          decoration: BoxDecoration(
+            color: cardColor.withOpacity(0.95),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 20,
+                offset: Offset(0, -5),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              // Handle bar
+              Container(
+                margin: EdgeInsets.only(top: 12),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              SizedBox(height: 20),
+              // Header
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
+                  children: [
+                    Icon(CupertinoIcons.bell_fill,
+                        color: primaryColor, size: 24),
+                    SizedBox(width: 12),
+                    Text(
+                      _translate('notifications'),
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: textPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(height: 20),
+              // Notifications list
+              Expanded(
+                child: _notifications.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(CupertinoIcons.bell_slash,
+                                size: 60, color: textSecondary),
+                            SizedBox(height: 16),
+                            Text(
+                              'Bildirishnomalar yo\'q',
+                              style:
+                                  TextStyle(fontSize: 16, color: textSecondary),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: EdgeInsets.symmetric(horizontal: 20),
+                        itemCount: _notifications.length,
+                        itemBuilder: (context, index) {
+                          final notification = _notifications[index];
+                          return Container(
+                            margin: EdgeInsets.only(bottom: 12),
+                            padding: EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: backgroundColor,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: notification['type'] == 'public'
+                                    ? primaryColor.withOpacity(0.3)
+                                    : warningColor.withOpacity(0.3),
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: notification['type'] == 'public'
+                                            ? primaryColor.withOpacity(0.1)
+                                            : warningColor.withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Text(
+                                        notification['type'] == 'public'
+                                            ? 'Umumiy'
+                                            : 'Shaxsiy',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color:
+                                              notification['type'] == 'public'
+                                                  ? primaryColor
+                                                  : warningColor,
+                                        ),
+                                      ),
+                                    ),
+                                    Spacer(),
+                                    Text(
+                                      DateFormat('dd.MM.yyyy HH:mm').format(
+                                          DateTime.parse(
+                                              notification['created_at'])),
+                                      style: TextStyle(
+                                          fontSize: 12, color: textSecondary),
+                                    ),
+                                  ],
+                                ),
+                                SizedBox(height: 12),
+                                if (notification['image_url'] != null) ...[
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Image.network(
+                                      notification['image_url'],
+                                      height: 120,
+                                      width: double.infinity,
+                                      fit: BoxFit.cover,
+                                      errorBuilder:
+                                          (context, error, stackTrace) =>
+                                              Container(
+                                        height: 120,
+                                        color: backgroundColor,
+                                        child: Icon(CupertinoIcons.photo,
+                                            color: textSecondary),
+                                      ),
+                                    ),
+                                  ),
+                                  SizedBox(height: 12),
+                                ],
+                                Text(
+                                  notification['message'] ?? '',
+                                  style: TextStyle(
+                                      fontSize: 14,
+                                      color: textPrimary,
+                                      height: 1.4),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
         ),
       ),
-    ).then((_) {
-      _fetchAdminData();
-    });
+    );
   }
 
-  void _openAdminPanelInWebview() {
-    _navigateToInAppWebView('https://davomat.modderboy.uz',
-        _translate('admin_panel_webview_title'));
-  }
-
-  void _openDepositFundsInWebview() {
-    String paymentUrl = 'https://davomatpayment.vercel.app/deposit';
-    if (_userEmail != null) {
-      paymentUrl += '?email=${Uri.encodeComponent(_userEmail!)}';
-    }
-    _navigateToInAppWebView(paymentUrl, _translate('deposit_webview_title'));
-  }
-
-  Future<void> _showAdminCredentialsDialog() async {
-    final displayedEmail = _userEmail ?? 'N/A';
-    final theme = Theme.of(context);
-    await showDialog(
+  Future<void> _logout() async {
+    final confirmed = await showDialog<bool>(
       context: context,
-      builder: (BuildContext dialogCtx) {
-        return AlertDialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(15.0)),
-          title: Row(children: [
-            Icon(Icons.admin_panel_settings_outlined,
-                color: theme.primaryColor),
-            const SizedBox(width: 10),
-            Text(_translate('admin_credentials'))
-          ]),
-          content: Column(
-              mainAxisSize: MainAxisSize.min,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: cardColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(
+          _translate('logout'),
+          style: TextStyle(fontWeight: FontWeight.bold, color: textPrimary),
+        ),
+        content: Text(
+          _translate('logout_confirmation'),
+          style: TextStyle(color: textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(_translate('cancel'),
+                style: TextStyle(color: textSecondary)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: errorColor,
+              foregroundColor: Colors.white,
+            ),
+            child: Text(_translate('confirm')),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await supabase.auth.signOut();
+        SharedPreferences prefs = await SharedPreferences.getInstance();
+        await prefs.clear();
+        if (mounted) {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (context) => MyApp()),
+            (route) => false,
+          );
+        }
+      } catch (e) {
+        print('Logout error: $e');
+        _showSnackBar('Chiqishda xatolik yuz berdi', isSuccess: false);
+      }
+    }
+  }
+
+  void _showSnackBar(String message, {required bool isSuccess}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isSuccess ? successColor : errorColor,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: backgroundColor,
+      body: SafeArea(
+        child: Column(
+          children: [
+            _buildModernAppBar(),
+            Expanded(
+              child: _isLoading
+                  ? Center(
+                      child: CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+                      ),
+                    )
+                  : _showSearchResults
+                      ? _buildSearchResults()
+                      : _buildTabContent(),
+            ),
+            _buildBottomNavBar(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildModernAppBar() {
+    return Container(
+      padding: EdgeInsets.fromLTRB(20, 10, 20, 16),
+      decoration: BoxDecoration(
+        color: cardColor,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          // Top row with profile and notifications
+          Row(
+            children: [
+              // Profile avatar
+              GestureDetector(
+                onTap: () {
+                  showCupertinoModalPopup(
+                    context: context,
+                    builder: (context) => CupertinoActionSheet(
+                      actions: [
+                        CupertinoActionSheetAction(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (context) => SettingsPage()),
+                            );
+                          },
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(CupertinoIcons.settings,
+                                  color: primaryColor),
+                              SizedBox(width: 8),
+                              Text(_translate('settings')),
+                            ],
+                          ),
+                        ),
+                        CupertinoActionSheetAction(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            _logout();
+                          },
+                          isDestructiveAction: true,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(CupertinoIcons.square_arrow_right),
+                              SizedBox(width: 8),
+                              Text(_translate('logout')),
+                            ],
+                          ),
+                        ),
+                      ],
+                      cancelButton: CupertinoActionSheetAction(
+                        onPressed: () => Navigator.pop(context),
+                        child: Text(_translate('cancel')),
+                      ),
+                    ),
+                  );
+                },
+                child: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [primaryColor, secondaryColor],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: _adminProfileImage != null
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Image.network(
+                            _adminProfileImage!,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) => Icon(
+                                CupertinoIcons.person_fill,
+                                color: Colors.white,
+                                size: 20),
+                          ),
+                        )
+                      : Icon(CupertinoIcons.person_fill,
+                          color: Colors.white, size: 20),
+                ),
+              ),
+              SizedBox(width: 12),
+              // Search box
+              Expanded(
+                child: Container(
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: backgroundColor,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey.shade300),
+                  ),
+                  child: TextField(
+                    controller: _searchController,
+                    style: TextStyle(fontSize: 14, color: textPrimary),
+                    decoration: InputDecoration(
+                      hintText: _translate('search_employees'),
+                      hintStyle: TextStyle(color: textSecondary, fontSize: 14),
+                      prefixIcon: Icon(CupertinoIcons.search,
+                          color: primaryColor, size: 18),
+                      suffixIcon: _searchController.text.isNotEmpty
+                          ? IconButton(
+                              icon: Icon(CupertinoIcons.clear,
+                                  color: textSecondary, size: 18),
+                              onPressed: () {
+                                _searchController.clear();
+                                setState(() => _showSearchResults = false);
+                              },
+                            )
+                          : null,
+                      border: InputBorder.none,
+                      contentPadding:
+                          EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    ),
+                  ),
+                ),
+              ),
+              SizedBox(width: 12),
+              // Notifications
+              GestureDetector(
+                onTap: _showNotifications,
+                child: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: backgroundColor,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey.shade300),
+                  ),
+                  child: Stack(
+                    children: [
+                      Center(
+                        child: Icon(CupertinoIcons.bell,
+                            color: textSecondary, size: 18),
+                      ),
+                      if (_notifications.isNotEmpty)
+                        Positioned(
+                          right: 8,
+                          top: 8,
+                          child: Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: errorColor,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSearchResults() {
+    if (_filteredEmployees.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(CupertinoIcons.person_3, size: 60, color: textSecondary),
+            SizedBox(height: 16),
+            Text(
+              _translate('no_employees'),
+              style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w500,
+                  color: textSecondary),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Boshqa kalit so\'z bilan qidiring',
+              style: TextStyle(fontSize: 14, color: textSecondary),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: EdgeInsets.all(20),
+      itemCount: _filteredEmployees.length,
+      itemBuilder: (context, index) {
+        final employee = _filteredEmployees[index];
+        return Container(
+          margin: EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: cardColor,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 5,
+                offset: Offset(0, 1),
+              ),
+            ],
+          ),
+          child: ListTile(
+            contentPadding: EdgeInsets.all(16),
+            leading: Container(
+              width: 50,
+              height: 50,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [primaryColor, secondaryColor],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: employee['profile_image'] != null
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.network(
+                        employee['profile_image'],
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) => Icon(
+                            CupertinoIcons.person_fill,
+                            color: Colors.white,
+                            size: 24),
+                      ),
+                    )
+                  : Icon(CupertinoIcons.person_fill,
+                      color: Colors.white, size: 24),
+            ),
+            title: Text(
+              employee['full_name'] ?? 'Unknown',
+              style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 16,
+                  color: textPrimary),
+            ),
+            subtitle: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildCredentialRow(
-                    context: dialogCtx,
-                    label: _translate('email'),
-                    value: displayedEmail,
-                    copyValue: displayedEmail),
-                const SizedBox(height: 12),
-                _buildCredentialRow(
-                    context: dialogCtx,
-                    label: _translate('password'),
-                    value: '*********',
-                    isPassword: true),
-                const SizedBox(height: 16),
-                const Divider(height: 1, thickness: 1),
-                const SizedBox(height: 16),
-                Text('Admin Panel:',
-                    style: TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 4),
-                InkWell(
-                  onTap: () {
-                    Navigator.of(dialogCtx).pop();
-                    _openAdminPanelInWebview();
-                  },
-                  child: Text('https://davomat.modderboy.uz',
-                      style: TextStyle(
-                          color: Colors.blue[700],
-                          decoration: TextDecoration.underline)),
+                if (employee['position'] != null) ...[
+                  SizedBox(height: 4),
+                  Text(
+                    employee['position'],
+                    style: TextStyle(
+                        color: primaryColor,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500),
+                  ),
+                ],
+                if (employee['email'] != null) ...[
+                  SizedBox(height: 2),
+                  Text(
+                    employee['email'],
+                    style: TextStyle(color: textSecondary, fontSize: 13),
+                  ),
+                ],
+                SizedBox(height: 4),
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: employee['is_active'] == true
+                        ? successColor.withOpacity(0.1)
+                        : errorColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    employee['is_active'] == true ? 'Faol' : 'Faol emas',
+                    style: TextStyle(
+                      color: employee['is_active'] == true
+                          ? successColor
+                          : errorColor,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
-                const SizedBox(height: 4),
-                Text("(Login with email and password)",
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(color: Colors.grey[600]))
-              ]),
-          actionsAlignment: MainAxisAlignment.center,
-          actionsPadding: const EdgeInsets.fromLTRB(16.0, 0, 16.0, 16.0),
-          actions: [
-            ElevatedButton.icon(
-              icon: const Icon(Icons.login_outlined),
-              label: Text(_translate('open')),
-              style: ElevatedButton.styleFrom(
-                  backgroundColor: theme.colorScheme.primary,
-                  foregroundColor: theme.colorScheme.onPrimary),
-              onPressed: () {
-                Navigator.of(dialogCtx).pop();
-                _openAdminPanelInWebview();
-              },
+              ],
             ),
-            TextButton(
-                child: Text(_translate('close')),
-                onPressed: () => Navigator.of(dialogCtx).pop()),
-          ],
+            trailing: Icon(CupertinoIcons.chevron_right,
+                color: textSecondary, size: 16),
+            onTap: () => _showEmployeeDetails(employee),
+          ),
         );
       },
     );
   }
 
-  Widget _buildCredentialRow(
-      {required BuildContext context,
-      required String label,
-      required String value,
-      String? copyValue,
-      bool isPassword = false}) {
-    final theme = Theme.of(context);
-    final bool canCopy = !isPassword && value != '*********' && value != 'N/A';
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label,
-            style:
-                theme.textTheme.labelMedium?.copyWith(color: Colors.grey[700])),
-        const SizedBox(height: 2),
-        Row(
+  void _showEmployeeDetails(Map<String, dynamic> employee) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => Container(
+        height: MediaQuery.of(context).size.height * 0.6,
+        decoration: BoxDecoration(
+          color: cardColor,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
           children: [
-            Expanded(
-                child: Text(value,
-                    style: const TextStyle(fontWeight: FontWeight.w600))),
-            if (canCopy)
-              SizedBox(
-                width: 30,
-                height: 30,
-                child: IconButton(
-                  icon: const Icon(Icons.copy_rounded, size: 16),
-                  tooltip: _translate('copied'),
-                  visualDensity: VisualDensity.compact,
-                  padding: EdgeInsets.zero,
-                  constraints:
-                      const BoxConstraints(minWidth: 24, minHeight: 24),
-                  onPressed: () {
-                    Clipboard.setData(ClipboardData(text: copyValue ?? value));
-                    ScaffoldMessenger.of(this.context).removeCurrentSnackBar();
-                    ScaffoldMessenger.of(this.context).showSnackBar(
-                      SnackBar(
-                          content: Text(_translate('copied')),
-                          duration: const Duration(seconds: 1)),
-                    );
-                  },
+            // Handle bar
+            Container(
+              margin: EdgeInsets.only(top: 12),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            SizedBox(height: 20),
+            // Employee info
+            Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [primaryColor, secondaryColor],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: employee['profile_image'] != null
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(20),
+                      child: Image.network(
+                        employee['profile_image'],
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) => Icon(
+                            CupertinoIcons.person_fill,
+                            color: Colors.white,
+                            size: 40),
+                      ),
+                    )
+                  : Icon(CupertinoIcons.person_fill,
+                      color: Colors.white, size: 40),
+            ),
+            SizedBox(height: 16),
+            Text(
+              employee['full_name'] ?? 'Unknown',
+              style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: textPrimary),
+            ),
+            if (employee['position'] != null) ...[
+              SizedBox(height: 8),
+              Text(
+                employee['position'],
+                style: TextStyle(
+                    fontSize: 16,
+                    color: primaryColor,
+                    fontWeight: FontWeight.w500),
+              ),
+            ],
+            if (employee['email'] != null) ...[
+              SizedBox(height: 8),
+              Text(
+                employee['email'],
+                style: TextStyle(fontSize: 14, color: textSecondary),
+              ),
+            ],
+            SizedBox(height: 16),
+            Container(
+              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: employee['is_active'] == true
+                    ? successColor.withOpacity(0.1)
+                    : errorColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                employee['is_active'] == true ? 'Faol Xodim' : 'Faol Emas',
+                style: TextStyle(
+                  color:
+                      employee['is_active'] == true ? successColor : errorColor,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  double _calculateMonthlyCost() {
-    if (_employeeCount <= _freeEmployeeLimit) {
-      return 0.0;
-    }
-    return (_employeeCount - _freeEmployeeLimit) * _costPerExtraEmployee;
-  }
-
-  Widget _buildTransactionItem(Map<String, dynamic> transaction) {
-    final theme = Theme.of(context);
-    final String type = transaction['transaction_type'] as String? ?? 'N/A';
-    final double amount = (transaction['amount'] as num?)?.toDouble() ?? 0.0;
-    final String date = transaction['created_at'] != null
-        ? DateFormat('yyyy-MM-dd HH:mm', _currentLanguage).format(
-            tz.TZDateTime.from(
-                DateTime.parse(transaction['created_at'] as String), tz.local))
-        : 'N/A';
-    final String description = transaction['description'] as String? ?? '';
-    final String paymentMethod = transaction['payment_method'] as String? ?? '';
-    final String status = transaction['status'] as String? ?? 'N/A';
-
-    IconData typeIcon;
-    Color amountColor;
-
-    switch (type.toLowerCase()) {
-      case 'deposit':
-        typeIcon = Icons.arrow_downward_rounded;
-        amountColor = Colors.green.shade700;
-        break;
-      case 'monthly_fee':
-      case 'employee_addition_fee':
-        typeIcon = Icons.arrow_upward_rounded;
-        amountColor = Colors.red.shade700;
-        break;
-      default:
-        typeIcon = Icons.history_toggle_off_rounded;
-        amountColor = theme.textTheme.bodyLarge?.color ?? Colors.black;
-    }
-
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 4.0),
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      child: Padding(
-        padding: const EdgeInsets.all(12.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    Icon(typeIcon, size: 20, color: amountColor),
-                    const SizedBox(width: 8),
-                    Text(_translate(type),
-                        style: theme.textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w500)),
-                  ],
-                ),
-                Text(
-                  '${amount >= 0 ? "" : ""}\$${amount.abs().toStringAsFixed(2)}',
-                  style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                      color: amountColor),
-                ),
-              ],
             ),
-            const SizedBox(height: 6),
-            Text('${_translate('date')}: $date',
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: Colors.grey[700])),
-            if (description.isNotEmpty)
-              Text('${_translate('description')}: $description',
-                  style: theme.textTheme.bodySmall
-                      ?.copyWith(color: Colors.grey[700])),
-            if (paymentMethod.isNotEmpty)
-              Text('${_translate('payment_method')}: $paymentMethod',
-                  style: theme.textTheme.bodySmall
-                      ?.copyWith(color: Colors.grey[700])),
-            Text('${_translate('status')}: ${_translate(status)}',
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: Colors.grey[700])),
+            SizedBox(height: 32),
+            // Action buttons
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        // Show attendance history for this employee
+                      },
+                      icon: Icon(CupertinoIcons.calendar),
+                      label: Text('Davomat tarixi'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: primaryColor,
+                        side: BorderSide(color: primaryColor),
+                        padding: EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        // Edit employee
+                      },
+                      icon: Icon(CupertinoIcons.pencil),
+                      label: Text('Tahrirlash'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: primaryColor,
+                        foregroundColor: Colors.white,
+                        padding: EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildAdminContent() {
-    String formattedUpdateDate = _lastUpdated == null
-        ? (_isLoading ? _translate('loading') : 'N/A')
-        : DateFormat('yyyy-MM-dd HH:mm', _currentLanguage)
-            .format(_lastUpdated!);
-    final theme = Theme.of(context);
-    final double monthlyCost = _calculateMonthlyCost();
-    final int paidEmployees = _employeeCount > _freeEmployeeLimit
-        ? _employeeCount - _freeEmployeeLimit
-        : 0;
-
-    if (_isLoading && _companyName == null && _userEmail == null) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    // Blurred glassmorphism container
-    Widget glassCard({required Widget child, List<Color>? colors}) {
-      return Container(
-          margin: const EdgeInsets.symmetric(vertical: 10),
-          decoration: BoxDecoration(
-            color: Color(0xFF8811F7), // Zaxira holatida to‘liq rang
-            borderRadius: BorderRadius.circular(20),
-            gradient: LinearGradient(
-              colors: [
-                Color(0xFF8811F7), // Asosiy binafsha
-                Color(0xFF5A0EBB), // Pastga qarab to‘qroq
-                Color(0xFF2F0A6B), // Yana chuqurroq fon
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            border: Border.all(
-              color: Colors.white.withOpacity(0.15), // Chegara nozik va shaffof
-              width: 1.4,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color:
-                    Color(0xFF8811F7).withOpacity(0.35), // Yengil nur effekti
-                blurRadius: 18,
-                spreadRadius: 1,
-                offset: Offset(0, 6),
+  Widget _buildBottomNavBar() {
+    return Container(
+      decoration: BoxDecoration(
+        color: cardColor,
+        border:
+            Border(top: BorderSide(color: Colors.grey.shade200, width: 1.0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 20,
+            offset: Offset(0, -5),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildBottomNavItem(
+                icon: CupertinoIcons.chart_bar_square,
+                label: _translate('dashboard'),
+                index: 0,
+                isSelected: _currentTab == 0,
               ),
-              BoxShadow(
-                color: Colors.black
-                    .withOpacity(0.2), // Pastdan tushadigan chuqur soya
-                blurRadius: 24,
-                offset: Offset(0, 12),
+              _buildBottomNavItem(
+                icon: CupertinoIcons.group,
+                label: _translate('employees'),
+                index: 1,
+                isSelected: _currentTab == 1,
+              ),
+              _buildBottomNavItem(
+                icon: CupertinoIcons.calendar,
+                label: _translate('attendance'),
+                index: 2,
+                isSelected: _currentTab == 2,
+              ),
+              _buildBottomNavItem(
+                icon: CupertinoIcons.settings,
+                label: _translate('settings'),
+                index: 3,
+                isSelected: _currentTab == 3,
               ),
             ],
           ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(24),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.05), // Shaffof yarim oq fon
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(
-                    color: Colors.white.withOpacity(0.18),
-                    width: 1.4,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBottomNavItem({
+    required IconData icon,
+    required String label,
+    required int index,
+    required bool isSelected,
+  }) {
+    return GestureDetector(
+      onTap: () {
+        setState(() => _currentTab = index);
+        _animationController.forward().then((_) {
+          _animationController.reverse();
+        });
+      },
+      child: AnimatedContainer(
+        duration: Duration(milliseconds: 200),
+        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color:
+              isSelected ? primaryColor.withOpacity(0.1) : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              color: isSelected ? primaryColor : textSecondary,
+              size: 22,
+            ),
+            SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? primaryColor : textSecondary,
+                fontSize: 11,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTabContent() {
+    switch (_currentTab) {
+      case 0:
+        return _buildDashboard();
+      case 1:
+        return _buildEmployees();
+      case 2:
+        return _buildAttendance();
+      case 3:
+        return _buildSettings();
+      default:
+        return _buildDashboard();
+    }
+  }
+
+  Widget _buildDashboard() {
+    return SingleChildScrollView(
+      padding: EdgeInsets.all(20),
+      child: Column(
+        children: [
+          // Stats cards
+          Row(
+            children: [
+              Expanded(
+                child: _buildStatCard(
+                  title: _translate('employee_count'),
+                  value: _employeeCount.toString(),
+                  subtitle:
+                      _employeeLimit != null ? '/ $_employeeLimit' : '/ ∞',
+                  icon: CupertinoIcons.group,
+                  color: primaryColor,
+                ),
+              ),
+              SizedBox(width: 16),
+              Expanded(
+                child: _buildStatCard(
+                  title: 'Bugungi davomat',
+                  value: _attendanceData.length.toString(),
+                  subtitle: 'xodim kelgan',
+                  icon: CupertinoIcons.calendar_today,
+                  color: successColor,
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 24),
+          // Quick actions
+          _buildQuickActions(),
+          SizedBox(height: 24),
+          // Today's attendance overview
+          _buildTodayAttendanceCard(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatCard({
+    required String title,
+    required String value,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+  }) {
+    return Container(
+      padding: EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [color.withOpacity(0.1), color.withOpacity(0.05)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withOpacity(0.2)),
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.1),
+            blurRadius: 10,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: color, size: 24),
+          ),
+          SizedBox(height: 12),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: textPrimary,
+                ),
+              ),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: textSecondary,
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 4),
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 14,
+              color: textSecondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuickActions() {
+    return Container(
+      padding: EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Tezkor amallar',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: textPrimary,
+            ),
+          ),
+          SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: _buildQuickActionButton(
+                  icon: CupertinoIcons.person_add,
+                  label: _translate('add_employee'),
+                  color: primaryColor,
+                  onTap: _showAddEmployeeModal,
+                ),
+              ),
+              SizedBox(width: 12),
+              Expanded(
+                child: _buildQuickActionButton(
+                  icon: CupertinoIcons.globe,
+                  label: 'Web Panel',
+                  color: warningColor,
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => InAppWebViewPage(
+                          url: 'https://davomat.modderboy.uz/dashboard',
+                          title: 'Admin Dashboard',
+                          currentLanguage: _currentLanguage,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuickActionButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withOpacity(0.3)),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: color, size: 24),
+            SizedBox(height: 8),
+            Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTodayAttendanceCard() {
+    final presentCount = _attendanceData
+        .where((a) => a['status'] == 'kelgan' || a['status'] == 'kechikkan')
+        .length;
+    final lateCount =
+        _attendanceData.where((a) => a['status'] == 'kechikkan').length;
+
+    return Container(
+      padding: EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            primaryColor.withOpacity(0.1),
+            secondaryColor.withOpacity(0.05)
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: primaryColor.withOpacity(0.2)),
+        boxShadow: [
+          BoxShadow(
+            color: primaryColor.withOpacity(0.1),
+            blurRadius: 10,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(CupertinoIcons.calendar_today, color: primaryColor),
+              SizedBox(width: 8),
+              Text(
+                'Bugungi davomat',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: textPrimary,
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: _buildMiniStatCard(
+                  title: _translate('present'),
+                  value: presentCount.toString(),
+                  color: successColor,
+                ),
+              ),
+              SizedBox(width: 12),
+              Expanded(
+                child: _buildMiniStatCard(
+                  title: _translate('late'),
+                  value: lateCount.toString(),
+                  color: warningColor,
+                ),
+              ),
+              SizedBox(width: 12),
+              Expanded(
+                child: _buildMiniStatCard(
+                  title: _translate('absent'),
+                  value: (_employeeCount - presentCount).toString(),
+                  color: errorColor,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMiniStatCard({
+    required String title,
+    required String value,
+    required Color color,
+  }) {
+    return Container(
+      padding: EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Column(
+        children: [
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 12,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmployees() {
+    if (_employees.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(CupertinoIcons.person_3, size: 80, color: textSecondary),
+            SizedBox(height: 24),
+            Text(
+              _translate('no_employees'),
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                color: textSecondary,
+              ),
+            ),
+            SizedBox(height: 8),
+            Text(
+              _translate('add_first_employee'),
+              style: TextStyle(
+                fontSize: 16,
+                color: textSecondary,
+              ),
+            ),
+            SizedBox(height: 32),
+            ElevatedButton.icon(
+              onPressed: _showAddEmployeeModal,
+              icon: Icon(CupertinoIcons.person_add),
+              label: Text(_translate('add_employee')),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: primaryColor,
+                foregroundColor: Colors.white,
+                padding: EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      children: [
+        // Add employee button
+        Container(
+          padding: EdgeInsets.all(20),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '${_translate('employees')} ($_employeeCount)',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: textPrimary,
                   ),
+                ),
+              ),
+              ElevatedButton.icon(
+                onPressed: _showAddEmployeeModal,
+                icon: Icon(CupertinoIcons.add, size: 18),
+                label: Text(_translate('add_employee')),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: primaryColor,
+                  foregroundColor: Colors.white,
+                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        // Employees list
+        Expanded(
+          child: ListView.builder(
+            padding: EdgeInsets.symmetric(horizontal: 20),
+            itemCount: _employees.length,
+            itemBuilder: (context, index) {
+              final employee = _employees[index];
+              return AnimatedContainer(
+                duration: Duration(milliseconds: 300),
+                curve: Curves.easeOut,
+                margin: EdgeInsets.only(bottom: 12),
+                padding: EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [cardColor, primaryColor.withOpacity(0.02)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: primaryColor.withOpacity(0.1)),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.2),
-                      blurRadius: 30,
-                      offset: Offset(0, 12),
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 10,
+                      offset: Offset(0, 2),
                     ),
                   ],
                 ),
-                child: child,
-              ),
-            ),
-          ));
-    }
-
-    return RefreshIndicator(
-      onRefresh: _fetchAdminData,
-      color: Colors.white,
-      backgroundColor: const Color(0xFF8811F7), // Purple background for refresh
-      displacement: 70,
-      strokeWidth: 2.8,
-      triggerMode: RefreshIndicatorTriggerMode.anywhere,
-      child: ListView(
-        padding: const EdgeInsets.all(16.0),
-        physics: const BouncingScrollPhysics(
-            parent: AlwaysScrollableScrollPhysics()),
-        children: [
-          // Company & Balance glass card
-          glassCard(
-            colors: [
-              const Color(0xFF43CEA2).withOpacity(0.5),
-              const Color(0xFF185A9D).withOpacity(0.3)
-            ],
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(_translate('company_name'),
-                    style: theme.textTheme.titleMedium?.copyWith(
-                        color: Colors.white, fontWeight: FontWeight.w600)),
-                Text(
-                  _companyName ?? (_isLoading ? _translate('loading') : 'N/A'),
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Row(
+                child: Row(
                   children: [
-                    const Icon(Icons.account_balance_wallet_outlined,
-                        color: Colors.greenAccent, size: 28),
-                    const SizedBox(width: 10),
-                    Text(_translate('balance'),
-                        style: theme.textTheme.titleMedium
-                            ?.copyWith(color: Colors.white)),
-                    const Spacer(),
-                    Text('\$${_balance.toStringAsFixed(2)}',
-                        style: theme.textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: _balance >= 0
-                              ? Colors.greenAccent
-                              : Colors.redAccent,
-                        )),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                Row(
-                  children: [
-                    const Icon(Icons.people_alt_rounded,
-                        color: Colors.blueAccent, size: 22),
-                    const SizedBox(width: 8),
-                    Text(
-                        _translate('total_employees', {'count': ''})
-                            .replaceAll(': {count}', ''),
-                        style: theme.textTheme.titleMedium
-                            ?.copyWith(color: Colors.white)),
-                    const Spacer(),
-                    Text(_employeeCount.toString(),
-                        style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold, color: Colors.white)),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  _translate('free_employees', {'count': _freeEmployeeLimit}),
-                  style: theme.textTheme.bodyMedium
-                      ?.copyWith(color: Colors.white70),
-                ),
-                Text(
-                  _translate('paid_employees', {'count': paidEmployees}),
-                  style: theme.textTheme.bodyMedium
-                      ?.copyWith(color: Colors.white70),
-                ),
-                Text(
-                  _translate('cost_per_additional_employee',
-                      {'cost': _costPerExtraEmployee.toStringAsFixed(2)}),
-                  style: theme.textTheme.bodyMedium
-                      ?.copyWith(color: Colors.white70),
-                ),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    const Icon(Icons.calculate_outlined,
-                        color: Colors.purpleAccent, size: 20),
-                    const SizedBox(width: 5),
-                    Text(
-                      _translate('monthly_cost',
-                          {'cost': monthlyCost.toStringAsFixed(2)}),
-                      style: theme.textTheme.titleMedium?.copyWith(
-                          color: Colors.white, fontWeight: FontWeight.w500),
+                    Container(
+                      width: 50,
+                      height: 50,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [primaryColor, secondaryColor],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: employee['profile_image'] != null
+                          ? ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: Image.network(
+                                employee['profile_image'],
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) =>
+                                    Icon(CupertinoIcons.person_fill,
+                                        color: Colors.white, size: 24),
+                              ),
+                            )
+                          : Icon(CupertinoIcons.person_fill,
+                              color: Colors.white, size: 24),
                     ),
-                  ],
-                ),
-                if (monthlyCost > _balance &&
-                    _employeeCount > _freeEmployeeLimit)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8.0),
-                    child: Text(
-                      _translate('insufficient_balance_for_new_employee'),
-                      style: const TextStyle(
-                          color: Colors.yellowAccent,
-                          fontStyle: FontStyle.italic),
-                    ),
-                  ),
-                const SizedBox(height: 10),
-                Align(
-                    alignment: Alignment.centerRight,
-                    child: Text(
-                        _translate('last_updated_data',
-                            {'datetime': formattedUpdateDate}),
-                        style: theme.textTheme.bodySmall
-                            ?.copyWith(color: Colors.white70),
-                        overflow: TextOverflow.ellipsis)),
-              ],
-            ),
-          ),
-          glassCard(
-            colors: [
-              const Color(0xFFff512f).withOpacity(0.35),
-              const Color(0xFFdd2476).withOpacity(0.25),
-            ],
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Admin Panel',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
+                    SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            employee['full_name'] ??
+                                employee['name'] ??
+                                'Unknown',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: textPrimary,
+                            ),
                           ),
-                    ),
-                    ElevatedButton(
-                      onPressed: () async {
-                        final result = await showDialog<String>(
-                          context: context,
-                          builder: (BuildContext dialogContext) {
-                            return AlertDialog(
-                              title: const Text('Kirishga ruxsat berilsinmi?'),
-                              content: const Text(
-                                  'Web App ichida ochilsinmi yoki tashqi browserda?'),
-                              actions: <Widget>[
-                                TextButton(
-                                  onPressed: () =>
-                                      Navigator.of(dialogContext).pop('web'),
-                                  child: const Text('Web App ichida'),
-                                ),
-                                TextButton(
-                                  onPressed: () => Navigator.of(dialogContext)
-                                      .pop('browser'),
-                                  child: const Text('Tashqi browser'),
-                                ),
-                              ],
-                            );
-                          },
-                        );
-
-                        if (result == 'web') {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const InAppWebViewPage(
-                                url: 'https://davomat.modderboy.uz',
-                                title: 'Davomat - Admin paneli',
-                                currentLanguage: 'uz',
+                          if (employee['position'] != null) ...[
+                            SizedBox(height: 4),
+                            Text(
+                              employee['position'],
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: primaryColor,
+                                fontWeight: FontWeight.w500,
                               ),
                             ),
-                          );
-                        } else if (result == 'browser') {
-                          final url =
-                              Uri.parse('https://davomat.modderboy.uz/');
-                          if (await canLaunchUrl(url)) {
-                            await launchUrl(url,
-                                mode: LaunchMode.externalApplication);
-                          } else {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                  content: Text('URL ochib bo‘lmadi')),
-                            );
-                          }
-                        }
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.white10,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10)),
-                      ),
-                      child: const Text(
-                        'Kirish',
-                        style: TextStyle(color: Colors.white),
+                          ],
+                          if (employee['email'] != null) ...[
+                            SizedBox(height: 4),
+                            Text(
+                              employee['email'],
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: textSecondary,
+                              ),
+                            ),
+                          ],
+                          SizedBox(height: 4),
+                          Container(
+                            padding: EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: employee['is_active'] == true
+                                  ? successColor.withOpacity(0.1)
+                                  : errorColor.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              employee['is_active'] == true
+                                  ? 'Faol'
+                                  : 'Faol emas',
+                              style: TextStyle(
+                                color: employee['is_active'] == true
+                                    ? successColor
+                                    : errorColor,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
+                    Icon(CupertinoIcons.chevron_right,
+                        color: textSecondary, size: 16),
                   ],
                 ),
-                // Bu yerga boshqa kontent joylashadi, hozircha placeholder
-              ],
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAttendance() {
+    return Column(
+      children: [
+        // Date selector and filter
+        Padding(
+          padding: EdgeInsets.all(20),
+          child: Row(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: () async {
+                    final date = await showDatePicker(
+                      context: context,
+                      initialDate: _selectedDate,
+                      firstDate: DateTime.now().subtract(Duration(days: 365)),
+                      lastDate: DateTime.now(),
+                    );
+                    if (date != null) {
+                      setState(() {
+                        _selectedDate = date;
+                      });
+                      await _loadAttendanceData();
+                    }
+                  },
+                  child: Container(
+                    padding: EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          primaryColor.withOpacity(0.1),
+                          primaryColor.withOpacity(0.05)
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: primaryColor.withOpacity(0.3)),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(CupertinoIcons.calendar, color: primaryColor),
+                        SizedBox(width: 8),
+                        Text(
+                          DateFormat('dd.MM.yyyy').format(_selectedDate),
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            color: textPrimary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              SizedBox(width: 16),
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      secondaryColor.withOpacity(0.1),
+                      secondaryColor.withOpacity(0.05)
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: secondaryColor.withOpacity(0.3)),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _attendanceFilter,
+                    items: ['Barchasi', 'Kelgan', 'Kelmagan', 'Kechikkan']
+                        .map((filter) => DropdownMenuItem(
+                              value: filter,
+                              child: Text(filter),
+                            ))
+                        .toList(),
+                    onChanged: (value) {
+                      setState(() {
+                        _attendanceFilter = value!;
+                      });
+                    },
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        // Attendance list
+        Expanded(
+          child: _attendanceData.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(CupertinoIcons.calendar_badge_minus,
+                          size: 60, color: textSecondary),
+                      SizedBox(height: 16),
+                      Text(
+                        _translate('no_data'),
+                        style: TextStyle(color: textSecondary),
+                      ),
+                    ],
+                  ),
+                )
+              : ListView.builder(
+                  padding: EdgeInsets.symmetric(horizontal: 20),
+                  itemCount: _attendanceData.length,
+                  itemBuilder: (context, index) {
+                    final attendance = _attendanceData[index];
+                    final user = attendance['users'];
+
+                    // Apply filter
+                    if (_attendanceFilter != 'Barchasi') {
+                      final status = attendance['status'] ?? 'kelmagan';
+                      if (_attendanceFilter == 'Kelgan' && status != 'kelgan')
+                        return SizedBox.shrink();
+                      if (_attendanceFilter == 'Kechikkan' &&
+                          status != 'kechikkan') return SizedBox.shrink();
+                      if (_attendanceFilter == 'Kelmagan' &&
+                          status != 'kelmagan') return SizedBox.shrink();
+                    }
+
+                    return Container(
+                      margin: EdgeInsets.only(bottom: 12),
+                      padding: EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            cardColor,
+                            _getStatusColor(attendance['status'])
+                                .withOpacity(0.02)
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: _getStatusColor(attendance['status'])
+                              .withOpacity(0.2),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: _getStatusColor(attendance['status'])
+                                .withOpacity(0.1),
+                            blurRadius: 10,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  user?['full_name'] ??
+                                      user?['name'] ??
+                                      'Unknown',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                    color: textPrimary,
+                                  ),
+                                ),
+                              ),
+                              _buildStatusChip(attendance['status']),
+                            ],
+                          ),
+                          SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _buildTimeInfo(
+                                  _translate('check_in'),
+                                  attendance['kelish_vaqti'],
+                                  CupertinoIcons.arrow_down_circle,
+                                  successColor,
+                                ),
+                              ),
+                              SizedBox(width: 16),
+                              Expanded(
+                                child: _buildTimeInfo(
+                                  _translate('check_out'),
+                                  attendance['ketish_vaqti'],
+                                  CupertinoIcons.arrow_up_circle,
+                                  warningColor,
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (attendance['kechikish_minut'] != null &&
+                              attendance['kechikish_minut'] > 0) ...[
+                            SizedBox(height: 8),
+                            Container(
+                              padding: EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: errorColor.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                    color: errorColor.withOpacity(0.3)),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(CupertinoIcons.clock,
+                                      color: errorColor, size: 16),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    '${_translate('late_minutes')}: ${attendance['kechikish_minut']}',
+                                    style: TextStyle(
+                                      color: errorColor,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
+  Color _getStatusColor(String? status) {
+    switch (status) {
+      case 'kelgan':
+        return successColor;
+      case 'kechikkan':
+        return warningColor;
+      default:
+        return errorColor;
+    }
+  }
+
+  Widget _buildStatusChip(String? status) {
+    Color color = _getStatusColor(status);
+    String text;
+
+    switch (status) {
+      case 'kelgan':
+        text = _translate('present');
+        break;
+      case 'kechikkan':
+        text = _translate('late');
+        break;
+      default:
+        text = _translate('absent');
+    }
+
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTimeInfo(
+      String label, String? time, IconData icon, Color color) {
+    return Container(
+      padding: EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: color, size: 16),
+              SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: textSecondary,
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 4),
+          Text(
+            time != null
+                ? DateFormat('HH:mm').format(DateTime.parse(time))
+                : '--:--',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: textPrimary,
             ),
           ),
-          // Transactions glass card
-          glassCard(
-            colors: [
-              const Color(0xFFff512f).withOpacity(0.35),
-              const Color(0xFFdd2476).withOpacity(0.25)
-            ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSettings() {
+    return SingleChildScrollView(
+      padding: EdgeInsets.all(20),
+      child: Column(
+        children: [
+          // Company logo section
+          Container(
+            padding: EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  primaryColor.withOpacity(0.1),
+                  secondaryColor.withOpacity(0.05)
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: primaryColor.withOpacity(0.2)),
+              boxShadow: [
+                BoxShadow(
+                  color: primaryColor.withOpacity(0.1),
+                  blurRadius: 10,
+                  offset: Offset(0, 4),
+                ),
+              ],
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(_translate('transactions_history'),
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    )),
-                const Divider(thickness: 1, height: 24, color: Colors.white38),
-                _isLoading && _transactions.isEmpty && _companyId != null
-                    ? const Center(
-                        child: Padding(
-                            padding: EdgeInsets.all(8.0),
-                            child: CircularProgressIndicator()))
-                    : _transactions.isEmpty
-                        ? Text(_translate('no_transactions_found'),
-                            style: const TextStyle(
-                                color: Colors.white70, fontSize: 15))
-                        : Column(
-                            children: _transactions
-                                .take(5)
-                                .map((tr) => ListTile(
-                                      leading: Icon(
-                                          tr['transaction_type'] == 'deposit'
-                                              ? Icons.arrow_downward_rounded
-                                              : Icons.arrow_upward_rounded,
-                                          color: tr['transaction_type'] ==
-                                                  'deposit'
-                                              ? Colors.greenAccent
-                                              : Colors.redAccent,
-                                          size: 26),
-                                      title: Text(
-                                        tr['transaction_type'] ?? '',
-                                        style: const TextStyle(
-                                            color: Colors.white,
-                                            fontWeight: FontWeight.bold),
-                                      ),
-                                      subtitle: Text(
-                                        tr['description'] ?? '',
-                                        style: const TextStyle(
-                                            color: Colors.white70),
-                                      ),
-                                      trailing: Text(
-                                        tr['amount'] != null
-                                            ? '\$${tr['amount']}'
-                                            : '',
-                                        style: TextStyle(
-                                          color: tr['transaction_type'] ==
-                                                  'deposit'
-                                              ? Colors.greenAccent
-                                              : Colors.redAccent,
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 16,
-                                        ),
-                                      ),
-                                    ))
-                                .toList(),
+                Text(
+                  _translate('company_info'),
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: textPrimary,
+                  ),
+                ),
+                SizedBox(height: 16),
+                Center(
+                  child: Column(
+                    children: [
+                      Container(
+                        width: 100,
+                        height: 100,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          gradient: _companyLogo == null
+                              ? LinearGradient(
+                                  colors: [primaryColor, secondaryColor],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                )
+                              : null,
+                        ),
+                        child: _companyLogo != null
+                            ? ClipRRect(
+                                borderRadius: BorderRadius.circular(16),
+                                child: Image.network(
+                                  _companyLogo!,
+                                  fit: BoxFit.cover,
+                                  width: 100,
+                                  height: 100,
+                                  errorBuilder: (context, error, stackTrace) =>
+                                      Icon(CupertinoIcons.building_2_fill,
+                                          color: Colors.white, size: 40),
+                                ),
+                              )
+                            : Icon(CupertinoIcons.building_2_fill,
+                                color: Colors.white, size: 40),
+                      ),
+                      SizedBox(height: 16),
+                      Text(
+                        _companyName ?? 'Company',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: textPrimary,
+                        ),
+                      ),
+                      SizedBox(height: 16),
+                      ElevatedButton.icon(
+                        onPressed: _isUploadingLogo ? null : _uploadLogo,
+                        icon: _isUploadingLogo
+                            ? SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.white),
+                                ),
+                              )
+                            : Icon(_companyLogo == null
+                                ? CupertinoIcons.cloud_upload
+                                : CupertinoIcons.pencil),
+                        label: Text(_companyLogo == null
+                            ? _translate('upload_logo')
+                            : _translate('change_logo')),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: primaryColor,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
                           ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(height: 24),
+          // Time settings
+          Container(
+            padding: EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  secondaryColor.withOpacity(0.1),
+                  primaryColor.withOpacity(0.05)
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: secondaryColor.withOpacity(0.2)),
+              boxShadow: [
+                BoxShadow(
+                  color: secondaryColor.withOpacity(0.1),
+                  blurRadius: 10,
+                  offset: Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Ish vaqti sozlamalari',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: textPrimary,
+                  ),
+                ),
+                SizedBox(height: 16),
+                _buildTimeSetting(
+                  _translate('arrival_time'),
+                  _arrivalTime,
+                  (time) => setState(() => _arrivalTime = time),
+                ),
+                SizedBox(height: 16),
+                _buildTimeSetting(
+                  _translate('departure_time'),
+                  _departureTime,
+                  (time) => setState(() => _departureTime = time),
+                ),
+                SizedBox(height: 16),
+                _buildGracePeriodSetting(),
+                SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _saveCompanySettings,
+                    child: Text(_translate('save_settings')),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: primaryColor,
+                      foregroundColor: Colors.white,
+                      padding: EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -1080,356 +2259,201 @@ class _AdminPageState extends State<AdminPage> {
     );
   }
 
-  Widget _buildInfoContent() {
-    final theme = Theme.of(context);
-    final filterOptions = ['Barchasi', 'Xodimlar', 'Balans', 'Tarix'];
-    String _infoFilter = 'Barchasi';
-
-    Widget glassInfoCard({required Widget child, List<Color>? colors}) {
-      return Container(
-        margin: const EdgeInsets.symmetric(vertical: 10),
+  Widget _buildTimeSetting(
+      String label, TimeOfDay time, Function(TimeOfDay) onChanged) {
+    return GestureDetector(
+      onTap: () async {
+        final newTime = await showTimePicker(
+          context: context,
+          initialTime: time,
+        );
+        if (newTime != null) {
+          onChanged(newTime);
+        }
+      },
+      child: Container(
+        padding: EdgeInsets.all(16),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(22),
-          gradient: LinearGradient(
-            colors: [
-              Color(0xFF8811F7), // Asosiy binafsha
-              Color(0xFF5A0EBB), // Pastga qarab to‘qroq
-              Color(0xFF2F0A6B), // Yana chuqurroq fon
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          border: Border.all(
-            color: Colors.white.withOpacity(0.15), // Chegara nozik va shaffof
-            width: 1.4,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Color(0xFF8811F7).withOpacity(0.35), // Yengil nur effekti
-              blurRadius: 18,
-              spreadRadius: 1,
-              offset: Offset(0, 6),
+          color: backgroundColor,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: primaryColor.withOpacity(0.3)),
+        ),
+        child: Row(
+          children: [
+            Icon(CupertinoIcons.clock, color: primaryColor),
+            SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: textSecondary,
+                    ),
+                  ),
+                  Text(
+                    time.format(context),
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: textPrimary,
+                    ),
+                  ),
+                ],
+              ),
             ),
-            BoxShadow(
-              color: Colors.black
-                  .withOpacity(0.2), // Pastdan tushadigan chuqur soya
-              blurRadius: 24,
-              offset: Offset(0, 12),
-            ),
+            Icon(CupertinoIcons.chevron_right, color: textSecondary, size: 16),
           ],
         ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(22),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-            child: Container(
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(22),
-                border: Border.all(
-                    color: Colors.white.withOpacity(0.14), width: 1.2),
-              ),
-              child: child,
+      ),
+    );
+  }
+
+  Widget _buildGracePeriodSetting() {
+    return Container(
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: primaryColor.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            _translate('grace_period'),
+            style: TextStyle(
+              fontSize: 14,
+              color: textSecondary,
             ),
           ),
-        ),
-      );
-    }
-
-    return StatefulBuilder(
-      builder: (context, setState) {
-        return RefreshIndicator(
-          onRefresh: _fetchAdminData,
-          color: Colors.white,
-          backgroundColor: const Color(0xFF5B07E3),
-          displacement: 70,
-          strokeWidth: 2.5,
-          child: Column(
+          SizedBox(height: 8),
+          Row(
             children: [
-              // Glass Gradient Filter AppBar
-              Container(
-                decoration: BoxDecoration(
-                  color: const Color(0xff5108c8),
-                  borderRadius:
-                      const BorderRadius.vertical(bottom: Radius.circular(20)),
-                  gradient: LinearGradient(
-                    colors: [
-                      Color(0xFF8811F7), // Asosiy binafsha
-                      Color(0xFF5A0EBB), // Pastga qarab to‘qroq
-                      Color(0xFF2F0A6B), // Yana chuqurroq fon
-                    ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  border: Border.all(
-                    color: Colors.white
-                        .withOpacity(0.15), // Chegara nozik va shaffof
-                    width: 1.4,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Color(0xFF8811F7)
-                          .withOpacity(0.35), // Yengil nur effekti
-                      blurRadius: 18,
-                      spreadRadius: 1,
-                      offset: Offset(0, 6),
-                    ),
-                    BoxShadow(
-                      color: Colors.black
-                          .withOpacity(0.2), // Pastdan tushadigan chuqur soya
-                      blurRadius: 24,
-                      offset: Offset(0, 12),
-                    ),
-                  ],
-                ),
-                padding: const EdgeInsets.only(
-                    top: 36, left: 16, right: 16, bottom: 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.info_outline,
-                            color: Colors.white, size: 26),
-                        const SizedBox(width: 8),
-                        Text(
-                          _translate('general_info'),
-                          style: theme.textTheme.titleLarge?.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 22,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                        const Spacer(),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      height: 40,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: filterOptions.length,
-                        separatorBuilder: (_, __) => const SizedBox(width: 10),
-                        itemBuilder: (context, i) {
-                          final isSelected = filterOptions[i] == _infoFilter;
-                          return GestureDetector(
-                            onTap: () =>
-                                setState(() => _infoFilter = filterOptions[i]),
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 250),
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 18, vertical: 10),
-                              decoration: BoxDecoration(
-                                color: isSelected
-                                    ? Colors.white
-                                    : Colors.white.withOpacity(0.12),
-                                borderRadius: BorderRadius.circular(18),
-                                border: Border.all(
-                                  color: isSelected
-                                      ? Colors.white
-                                      : Colors.white.withOpacity(0.25),
-                                  width: isSelected ? 1.8 : 1,
-                                ),
-                                boxShadow: isSelected
-                                    ? [
-                                        BoxShadow(
-                                          color: Colors.white.withOpacity(0.2),
-                                          blurRadius: 8,
-                                          offset: Offset(0, 2),
-                                        )
-                                      ]
-                                    : [],
-                              ),
-                              child: Text(
-                                filterOptions[i],
-                                style: TextStyle(
-                                  color: isSelected
-                                      ? const Color(0xFF5B07E3)
-                                      : Colors.white,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 15,
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ],
+              Expanded(
+                child: Slider(
+                  value: _graceMinutes.toDouble(),
+                  min: 0,
+                  max: 60,
+                  divisions: 12,
+                  activeColor: primaryColor,
+                  onChanged: (value) {
+                    setState(() {
+                      _graceMinutes = value.round();
+                    });
+                  },
                 ),
               ),
-
-              // Main Content - unchanged logic, retains design
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.all(16),
-                  physics: const BouncingScrollPhysics(
-                      parent: AlwaysScrollableScrollPhysics()),
-                  children: [
-                    if (_infoFilter == 'Barchasi' || _infoFilter == 'Xodimlar')
-                      glassInfoCard(
-                        colors: [
-                          const Color(0xff5b07e3),
-                          const Color(0xFF3B0CA9),
-                        ],
-                        child: ListTile(
-                          leading: const Icon(Icons.people_outline,
-                              color: Colors.white70, size: 30),
-                          title: Text(_translate('employees'),
-                              style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold)),
-                          subtitle: Text(_employeeCount.toString(),
-                              style: const TextStyle(
-                                  color: Colors.white70, fontSize: 16)),
-                        ),
-                      ),
-                    if (_infoFilter == 'Barchasi' || _infoFilter == 'Balans')
-                      glassInfoCard(
-                        colors: [
-                          const Color(0xff5b07e3),
-                          const Color(0xFF3B0CA9),
-                        ],
-                        child: ListTile(
-                          leading: const Icon(
-                              Icons.account_balance_wallet_outlined,
-                              color: Colors.amberAccent,
-                              size: 30),
-                          title: Text(_translate('balance'),
-                              style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold)),
-                          subtitle: Text('\$${_balance.toStringAsFixed(2)}',
-                              style: const TextStyle(
-                                  color: Colors.white70, fontSize: 16)),
-                        ),
-                      ),
-                    if (_infoFilter == 'Barchasi' || _infoFilter == 'Tarix')
-                      glassInfoCard(
-                        colors: [
-                          const Color(0xff5b07e3),
-                          const Color(0xFF3B0CA9),
-                        ],
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            ListTile(
-                              leading: const Icon(Icons.history,
-                                  color: Colors.white70, size: 30),
-                              title: Text(_translate('transactions_history'),
-                                  style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold)),
-                              subtitle: _transactions.isEmpty
-                                  ? Text(_translate('no_transactions_found'),
-                                      style: const TextStyle(
-                                          color: Colors.white70))
-                                  : null,
-                            ),
-                            ..._transactions.map((tr) => ListTile(
-                                  leading: Icon(
-                                      tr['transaction_type'] == 'deposit'
-                                          ? Icons.arrow_downward_rounded
-                                          : Icons.arrow_upward_rounded,
-                                      color: tr['transaction_type'] == 'deposit'
-                                          ? Colors.greenAccent
-                                          : Colors.redAccent,
-                                      size: 26),
-                                  title: Text('${tr['transaction_type'] ?? ''}',
-                                      style: const TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.bold)),
-                                  subtitle: Text('${tr['description'] ?? ''}',
-                                      style: const TextStyle(
-                                          color: Colors.white70)),
-                                  trailing: Text(
-                                    tr['amount'] != null
-                                        ? '\$${tr['amount']}'
-                                        : '',
-                                    style: TextStyle(
-                                      color: tr['transaction_type'] == 'deposit'
-                                          ? Colors.greenAccent
-                                          : Colors.redAccent,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                )),
-                          ],
-                        ),
-                      ),
-                  ],
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: primaryColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: primaryColor.withOpacity(0.3)),
+                ),
+                child: Text(
+                  '$_graceMinutes min',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: primaryColor,
+                  ),
                 ),
               ),
             ],
           ),
-        );
-      },
-    );
-  }
-
-  Widget _buildInfoTile(
-      {required IconData icon,
-      required String title,
-      required String subtitle,
-      Color? subtitleColor,
-      bool canCopy = false,
-      VoidCallback? onTap}) {
-    final theme = Theme.of(context);
-    final String displaySubtitle = subtitle;
-    final bool isValidForCopy = canCopy &&
-        (subtitle != 'N/A') &&
-        subtitle.isNotEmpty &&
-        subtitle != _translate('loading');
-
-    return ListTile(
-      leading: Icon(icon, color: theme.primaryColor.withOpacity(0.8)),
-      title: Text(title,
-          style: theme.textTheme.labelLarge
-              ?.copyWith(color: Colors.grey.shade600)),
-      subtitle: Text(displaySubtitle,
-          style: theme.textTheme.titleMedium?.copyWith(
-              color: subtitleColor ?? theme.textTheme.bodyLarge?.color,
-              fontWeight: FontWeight.w500)),
-      trailing: isValidForCopy && onTap == null
-          ? IconButton(
-              icon: Icon(Icons.copy_rounded,
-                  size: 18, color: Colors.grey.shade500),
-              tooltip: _translate('copied'),
-              visualDensity: VisualDensity.compact,
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
-              onPressed: () {
-                Clipboard.setData(ClipboardData(text: displaySubtitle));
-                ScaffoldMessenger.of(this.context).removeCurrentSnackBar();
-                ScaffoldMessenger.of(this.context).showSnackBar(SnackBar(
-                    content: Text(_translate('copied')),
-                    duration: const Duration(seconds: 1)));
-              },
-            )
-          : (onTap != null
-              ? Icon(Icons.open_in_new, color: Colors.blue.shade700)
-              : null),
-      onTap: onTap,
-      contentPadding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 0),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final List<Widget> pages = <Widget>[
-      AdminUserSearchAppBar(adminContent: _buildAdminContent()),
-      _buildInfoContent(),
-    ];
-    return Scaffold(
-      body: IndexedStack(index: _selectedIndex, children: pages),
-      bottomNavigationBar: CustomBottomNavBar(
-        currentIndex: _selectedIndex,
-        onTap: (index) {
-          if (mounted) setState(() => _selectedIndex = index);
-        },
-        translate: _translate,
+        ],
       ),
     );
+  }
+
+  Future<void> _uploadLogo() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
+      );
+
+      if (result != null && result.files.isNotEmpty) {
+        setState(() => _isUploadingLogo = true);
+
+        final file = result.files.first;
+        final fileName =
+            'company_logo/${DateTime.now().millisecondsSinceEpoch}_${file.name}';
+
+        Uint8List? fileBytes;
+        if (kIsWeb) {
+          fileBytes = file.bytes;
+        } else {
+          fileBytes = await File(file.path!).readAsBytes();
+        }
+
+        if (fileBytes != null) {
+          // Upload to Supabase Storage
+          await supabase.storage
+              .from('photos')
+              .uploadBinary(fileName, fileBytes);
+
+          // Get public URL
+          final logoUrl =
+              supabase.storage.from('photos').getPublicUrl(fileName);
+
+          // Update company record
+          final userId = supabase.auth.currentUser?.id;
+          final userResponse = await supabase
+              .from('users')
+              .select('company_id')
+              .eq('id', userId!)
+              .maybeSingle();
+
+          final companyId = userResponse?['company_id'];
+          if (companyId != null) {
+            await supabase
+                .from('companies')
+                .update({'logo_url': logoUrl}).eq('id', companyId);
+
+            setState(() {
+              _companyLogo = logoUrl;
+            });
+
+            _showSnackBar(_translate('logo_uploaded'), isSuccess: true);
+          }
+        }
+      }
+    } catch (e) {
+      print('Error uploading logo: $e');
+      _showSnackBar(_translate('error'), isSuccess: false);
+    } finally {
+      setState(() => _isUploadingLogo = false);
+    }
+  }
+
+  Future<void> _saveCompanySettings() async {
+    try {
+      final userId = supabase.auth.currentUser?.id;
+      final userResponse = await supabase
+          .from('users')
+          .select('company_id')
+          .eq('id', userId!)
+          .maybeSingle();
+
+      final companyId = userResponse?['company_id'];
+      if (companyId != null) {
+        await supabase.from('companies').update({
+          'kelish_vaqti':
+              '${_arrivalTime.hour.toString().padLeft(2, '0')}:${_arrivalTime.minute.toString().padLeft(2, '0')}:00',
+          'ketish_vaqti':
+              '${_departureTime.hour.toString().padLeft(2, '0')}:${_departureTime.minute.toString().padLeft(2, '0')}:00',
+          'hisobsiz_vaqt': _graceMinutes,
+        }).eq('id', companyId);
+
+        _showSnackBar(_translate('settings_saved'), isSuccess: true);
+      }
+    } catch (e) {
+      print('Error saving settings: $e');
+      _showSnackBar(_translate('error'), isSuccess: false);
+    }
   }
 }
